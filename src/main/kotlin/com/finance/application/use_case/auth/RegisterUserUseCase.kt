@@ -29,7 +29,9 @@ class RegisterUserUseCase(
 
         userService.checkEmailAvailability(email)
 
-        val hashedPassword = passwordEncoder.encode(request.password)
+        val validPassword = validatePasswordStrength(request.password)
+
+        val hashedPassword = passwordEncoder.encode(validPassword)
 
         val newUser = UserEntity(
             firstName = firstName,
@@ -40,5 +42,16 @@ class RegisterUserUseCase(
 
         val savedUser = userRepository.save(newUser)
         return userDtoMapper.toRegisterResponse(savedUser)
+    }
+
+    private fun validatePasswordStrength(rawPassword: String): String {
+        require(rawPassword.isNotBlank()) { "A senha não pode estar em branco." }
+        require(rawPassword.length >= 8) { "A senha deve ter no mínimo 8 caracteres." }
+        require(rawPassword.length <= 128) { "A senha deve ter no máximo 128 caracteres." }
+        require(rawPassword.any { it.isUpperCase() }) { "A senha deve conter pelo menos uma letra maiúscula." }
+        require(rawPassword.any { it.isLowerCase() }) { "A senha deve conter pelo menos uma letra minúscula." }
+        require(rawPassword.any { it.isDigit() }) { "A senha deve conter pelo menos um número." }
+        require(rawPassword.any { !it.isLetterOrDigit() }) { "A senha deve conter pelo menos um caractere especial." }
+        return rawPassword
     }
 }

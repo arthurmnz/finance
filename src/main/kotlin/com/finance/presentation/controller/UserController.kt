@@ -6,15 +6,16 @@ import com.finance.application.mapper.UserDtoMapper
 import com.finance.application.service.UserService
 import com.finance.application.use_case.user.DeleteUserUseCase
 import com.finance.application.use_case.user.UpdateUserUseCase
+import com.finance.domain.entity.UserEntity
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.tags.Tag
 import org.springframework.http.ResponseEntity
+import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 import java.util.UUID
@@ -28,7 +29,6 @@ class UserController(
     private val userService: UserService,
     private val userDtoMapper: UserDtoMapper,
 ) {
-
     @GetMapping("/{id}")
     @Operation(summary = "Buscar usuário por ID")
     fun getById(@PathVariable id: UUID): ResponseEntity<UserResponse> {
@@ -36,11 +36,12 @@ class UserController(
         return ResponseEntity.ok(userDtoMapper.toUserResponse(user))
     }
 
-    @GetMapping
-    @Operation(summary = "Listar todos os usuários")
-    fun getAll(): ResponseEntity<List<UserResponse>> {
-        val users = userService.findAll()
-        return ResponseEntity.ok(users.map { userDtoMapper.toUserResponse(it) })
+    @GetMapping("/me")
+    @Operation(summary = "Lista o usuário logado")
+    fun getAll(
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<UserResponse> {
+        return ResponseEntity.ok(userDtoMapper.toUserResponse(authenticatedUser))
     }
 
     @PutMapping("/{id}")
@@ -48,9 +49,9 @@ class UserController(
     fun update(
         @PathVariable id: UUID,
         @RequestBody request: UpdateUserRequest,
-        @RequestHeader(name = "X-User-Id", required = false) authenticatedUserId: UUID? = null,
+        @AuthenticationPrincipal authenticatedUser: UserEntity,
     ): ResponseEntity<UserResponse> {
-        val updated = updateUserUseCase.execute(id, request, authenticatedUserId)
+        val updated = updateUserUseCase.execute(id, request, authenticatedUser.id)
         return ResponseEntity.ok(updated)
     }
 
@@ -58,9 +59,9 @@ class UserController(
     @Operation(summary = "Excluir usuário")
     fun delete(
         @PathVariable id: UUID,
-        @RequestHeader(name = "X-User-Id", required = false) authenticatedUserId: UUID? = null,
+        @AuthenticationPrincipal authenticatedUser: UserEntity,
     ): ResponseEntity<Void> {
-        deleteUserUseCase.execute(id, authenticatedUserId)
+        deleteUserUseCase.execute(id, authenticatedUser.id)
         return ResponseEntity.noContent().build()
     }
 }

@@ -10,9 +10,14 @@ import com.finance.domain.value_object.Email
 import com.finance.domain.value_object.Name
 import com.finance.domain.value_object.PasswordHash
 import com.finance.presentation.exception.GlobalExceptionHandler
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.http.MediaType
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+import org.springframework.security.core.authority.SimpleGrantedAuthority
+import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.delete
 import org.springframework.test.web.servlet.get
@@ -45,6 +50,7 @@ class UserControllerTest {
         mockMvc = MockMvcBuilders
             .standaloneSetup(userController)
             .setControllerAdvice(GlobalExceptionHandler())
+            .setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
             .build()
 
         existingUser = UserEntity(
@@ -55,6 +61,28 @@ class UserControllerTest {
         )
         userRepository.save(existingUser)
     }
+
+    @AfterEach
+    fun tearDown() {
+        SecurityContextHolder.clearContext()
+    }
+
+    // ==========================================
+    // HELPER
+    // ==========================================
+
+    private fun authenticateAs(user: UserEntity) {
+        val auth = UsernamePasswordAuthenticationToken(
+            user,
+            null,
+            listOf(SimpleGrantedAuthority("ROLE_USER"))
+        )
+        SecurityContextHolder.getContext().authentication = auth
+    }
+
+    // ==========================================
+    // GET
+    // ==========================================
 
     @Test
     fun `should get user by id with 200 OK`() {
@@ -87,8 +115,14 @@ class UserControllerTest {
             }
     }
 
+    // ==========================================
+    // PUT
+    // ==========================================
+
     @Test
     fun `should update user profile with 200 OK`() {
+        authenticateAs(existingUser)
+
         val json = """
             {
                 "firstName": "Arthur Victor",
@@ -100,7 +134,6 @@ class UserControllerTest {
         mockMvc.put("/api/v1/users/${existingUser.id}") {
             contentType = MediaType.APPLICATION_JSON
             content = json
-            header("X-User-Id", existingUser.id.toString())
         }.andExpect {
             status { isOk() }
             jsonPath("$.firstName") { value("Arthur Victor") }
@@ -111,7 +144,15 @@ class UserControllerTest {
 
     @Test
     fun `should return 403 Forbidden when updating another user`() {
-        val otherUserId = UUID.randomUUID()
+        val otherUser = UserEntity(
+            firstName = Name("Hacker"),
+            lastName = Name("Silva"),
+            email = Email("hacker@finance.com"),
+            passwordHash = PasswordHash("hashed456")
+        )
+        userRepository.save(otherUser)
+        authenticateAs(otherUser)
+
         val json = """
             {
                 "firstName": "Hacker"
@@ -121,20 +162,24 @@ class UserControllerTest {
         mockMvc.put("/api/v1/users/${existingUser.id}") {
             contentType = MediaType.APPLICATION_JSON
             content = json
-            header("X-User-Id", otherUserId.toString())
         }.andExpect {
             status { isForbidden() }
             jsonPath("$.status") { value(403) }
         }
     }
 
+    // ==========================================
+    // DELETE
+    // ==========================================
+
     @Test
     fun `should delete user with 204 No Content`() {
-        mockMvc.delete("/api/v1/users/${existingUser.id}") {
-            header("X-User-Id", existingUser.id.toString())
-        }.andExpect {
-            status { isNoContent() }
-        }
+        authenticateAs(existingUser)
+
+        mockMvc.delete("/api/v1/users/${existingUser.id}")
+            .andExpect {
+                status { isNoContent() }
+            }
 
         mockMvc.get("/api/v1/users/${existingUser.id}")
             .andExpect {

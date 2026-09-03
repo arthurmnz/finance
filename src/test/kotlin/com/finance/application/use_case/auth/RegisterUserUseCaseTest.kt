@@ -36,12 +36,12 @@ class RegisterUserUseCaseTest {
     }
 
     @Test
-    fun `should register user successfully`() {
+    fun `should register user successfully with strong password`() {
         val request = RegisterUserRequest(
             firstName = "Arthur",
             lastName = "Menezes",
             email = "arthur@finance.com",
-            password = "SecretPassword123"
+            password = "SecretPassword123!"
         )
 
         val response = registerUserUseCase.execute(request)
@@ -62,13 +62,51 @@ class RegisterUserUseCaseTest {
             firstName = "Arthur",
             lastName = "Menezes",
             email = "arthur@finance.com",
-            password = "SecretPassword123"
+            password = "SecretPassword123!"
         )
 
         registerUserUseCase.execute(request)
 
         assertThrows<UserAlreadyExistsException> {
             registerUserUseCase.execute(request)
+        }
+    }
+
+    @Test
+    fun `should fail when password does not meet strength requirements`() {
+        // Less than 8 chars
+        assertThrows<IllegalArgumentException> {
+            registerUserUseCase.execute(
+                RegisterUserRequest("Arthur", "Menezes", "test1@finance.com", "Ab1!")
+            )
+        }
+
+        // Missing uppercase
+        assertThrows<IllegalArgumentException> {
+            registerUserUseCase.execute(
+                RegisterUserRequest("Arthur", "Menezes", "test2@finance.com", "secret123!")
+            )
+        }
+
+        // Missing lowercase
+        assertThrows<IllegalArgumentException> {
+            registerUserUseCase.execute(
+                RegisterUserRequest("Arthur", "Menezes", "test3@finance.com", "SECRET123!")
+            )
+        }
+
+        // Missing digit
+        assertThrows<IllegalArgumentException> {
+            registerUserUseCase.execute(
+                RegisterUserRequest("Arthur", "Menezes", "test4@finance.com", "SecretPassword!")
+            )
+        }
+
+        // Missing special character
+        assertThrows<IllegalArgumentException> {
+            registerUserUseCase.execute(
+                RegisterUserRequest("Arthur", "Menezes", "test5@finance.com", "SecretPassword123")
+            )
         }
     }
 }
