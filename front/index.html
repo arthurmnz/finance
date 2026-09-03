@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finance API Test Client</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-100 p-8 font-sans">
+    <div class="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-md">
+        <h1 class="text-2xl font-bold mb-6 text-center text-blue-600">Finance API Test Client</h1>
+        
+        <!-- Login Section -->
+        <div id="login-section" class="mb-8 border-b pb-8">
+            <h2 class="text-xl font-semibold mb-4">Login</h2>
+            <div class="flex gap-4">
+                <input type="email" id="email" placeholder="Email" class="border p-2 rounded flex-1" value="test@test.com">
+                <input type="password" id="password" placeholder="Password" class="border p-2 rounded flex-1" value="123456">
+                <button onclick="login()" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Login</button>
+            </div>
+            <p id="login-status" class="mt-2 text-sm font-semibold"></p>
+        </div>
+
+        <!-- Dashboard Section -->
+        <div id="dashboard-section" class="hidden">
+            <div class="flex justify-between items-center mb-6">
+                <p class="text-green-600 font-semibold">Autenticado com sucesso!</p>
+                <button onclick="logout()" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 text-sm">Logout</button>
+            </div>
+
+            <!-- Accounts -->
+            <div class="mb-8 p-4 bg-gray-50 rounded border">
+                <h2 class="text-lg font-semibold mb-4">Minhas Contas (Para copiar o ID)</h2>
+                <div class="flex gap-2 mb-4">
+                    <button onclick="loadAccounts()" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">Recarregar Contas</button>
+                </div>
+                <div id="accounts-list" class="space-y-2 text-sm"></div>
+            </div>
+
+            <!-- Categories -->
+            <div class="mb-8 p-4 bg-gray-50 rounded border">
+                <h2 class="text-lg font-semibold mb-4">Categorias (Para copiar o ID)</h2>
+                
+                <div class="flex gap-2 mb-4">
+                    <input type="text" id="cat-name" placeholder="Nome" class="border p-2 rounded w-1/3">
+                    <select id="cat-type" class="border p-2 rounded w-1/4">
+                        <option value="EXPENSE">Despesa (EXPENSE)</option>
+                        <option value="INCOME">Receita (INCOME)</option>
+                        <option value="BOTH">Ambos (BOTH)</option>
+                    </select>
+                    <button onclick="createCategory()" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Criar Categoria</button>
+                    <button onclick="loadCategories()" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">Recarregar</button>
+                </div>
+                
+                <div id="categories-list" class="space-y-2 text-sm"></div>
+            </div>
+
+            <!-- Transactions -->
+            <div class="mb-8 p-4 bg-gray-50 rounded border">
+                <h2 class="text-lg font-semibold mb-4">Criar Transação</h2>
+                
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <input type="text" id="txn-title" placeholder="Título" class="border p-2 rounded">
+                    <input type="number" id="txn-amount" placeholder="Valor (em centavos)" class="border p-2 rounded">
+                    
+                    <select id="txn-type" class="border p-2 rounded">
+                        <option value="EXPENSE">Despesa (EXPENSE)</option>
+                        <option value="INCOME">Receita (INCOME)</option>
+                    </select>
+                    
+                    <input type="text" id="txn-account-id" placeholder="Account ID (UUID)" class="border p-2 rounded">
+                    <input type="text" id="txn-category-id" placeholder="Category ID (UUID) (Opcional)" class="border p-2 rounded">
+                    
+                </div>
+                <button onclick="createTransaction()" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Criar Transação</button>
+            </div>
+            
+            <div class="mb-8 p-4 bg-gray-50 rounded border">
+                <h2 class="text-lg font-semibold mb-4">Listar Transações por Categoria</h2>
+                <div class="flex gap-2 mb-4">
+                    <input type="text" id="filter-category-id" placeholder="Category ID (UUID)" class="border p-2 rounded flex-1">
+                    <button onclick="loadTransactionsByCategory()" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Buscar</button>
+                </div>
+                <div id="transactions-list" class="space-y-2 text-sm"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8080/api/v1';
+        let token = localStorage.getItem('accessToken');
+
+        if (token) {
+            showDashboard();
+            loadAccounts();
+            loadCategories();
+        }
+
+        async function loadAccounts() {
+            try {
+                const accounts = await apiCall('/accounts');
+                const list = document.getElementById('accounts-list');
+                list.innerHTML = '';
+                
+                if (accounts.length === 0) {
+                    list.innerHTML = '<p class="text-gray-500">Nenhuma conta encontrada. Crie via Postman/Swagger primeiro!</p>';
+                    return;
+                }
+                
+                accounts.forEach(a => {
+                    list.innerHTML += `
+                        <div class="flex justify-between items-center bg-white p-3 border rounded">
+                            <div>
+                                <span class="font-bold">${a.name}</span>
+                                <span class="text-xs bg-green-100 text-green-800 px-2 py-1 rounded ml-2">Saldo: ${a.balance}</span>
+                                <div class="text-xs text-gray-500 mt-1 cursor-pointer" onclick="document.getElementById('txn-account-id').value = '${a.id}'">ID: ${a.id} (Clique para usar)</div>
+                            </div>
+                        </div>
+                    `;
+                });
+            } catch (e) {
+                alert('Erro ao listar contas: ' + e.message);
+            }
+        }
+
+        async function login() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const status = document.getElementById('login-status');
+            
+            try {
+                const res = await fetch(`${API_URL}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    token = data.accessToken;
+                    localStorage.setItem('accessToken', token);
+                    status.textContent = 'Login efetuado!';
+                    status.className = 'mt-2 text-sm font-semibold text-green-600';
+                    showDashboard();
+                    loadAccounts();
+                    loadCategories();
+                } else {
+                    status.textContent = 'Erro no login.';
+                    status.className = 'mt-2 text-sm font-semibold text-red-600';
+                }
+            } catch (err) {
+                status.textContent = 'Erro de rede.';
+                status.className = 'mt-2 text-sm font-semibold text-red-600';
+            }
+        }
+
+        function logout() {
+            token = null;
+            localStorage.removeItem('accessToken');
+            document.getElementById('login-section').classList.remove('hidden');
+            document.getElementById('dashboard-section').classList.add('hidden');
+        }
+
+        function showDashboard() {
+            document.getElementById('login-section').classList.add('hidden');
+            document.getElementById('dashboard-section').classList.remove('hidden');
+        }
+
+        async function apiCall(endpoint, method = 'GET', body = null) {
+            const headers = {
+                'Authorization': `Bearer ${token}`
+            };
+            if (body) {
+                headers['Content-Type'] = 'application/json';
+            }
+            
+            const config = { method, headers };
+            if (body) config.body = JSON.stringify(body);
+            
+            const res = await fetch(`${API_URL}${endpoint}`, config);
+            if (!res.ok) {
+                if (res.status === 401) logout();
+                throw new Error(await res.text());
+            }
+            // Retorna vazio se for DELETE
+            if (method === 'DELETE' || res.status === 204) return null;
+            return res.json();
+        }
+
+        async function loadCategories() {
+            try {
+                const categories = await apiCall('/categories/me');
+                const list = document.getElementById('categories-list');
+                list.innerHTML = '';
+                
+                if (categories.length === 0) {
+                    list.innerHTML = '<p class="text-gray-500">Nenhuma categoria encontrada.</p>';
+                    return;
+                }
+                
+                categories.forEach(c => {
+                    list.innerHTML += `
+                        <div class="flex justify-between items-center bg-white p-3 border rounded">
+                            <div>
+                                <span class="font-bold">${c.name}</span>
+                                <span class="text-xs bg-gray-200 px-2 py-1 rounded ml-2">${c.type}</span>
+                                <div class="text-xs text-gray-500 mt-1 cursor-pointer" onclick="document.getElementById('filter-category-id').value = '${c.id}'; document.getElementById('txn-category-id').value = '${c.id}'">ID: ${c.id} (Clique para usar)</div>
+                            </div>
+                        </div>
+                    `;
+                });
+            } catch (e) {
+                alert('Erro ao listar categorias: ' + e.message);
+            }
+        }
+
+        async function createCategory() {
+            const name = document.getElementById('cat-name').value;
+            const type = document.getElementById('cat-type').value;
+            
+            try {
+                await apiCall('/categories', 'POST', { name, type, description: "" });
+                alert('Categoria criada!');
+                loadCategories();
+            } catch (e) {
+                alert('Erro: ' + e.message);
+            }
+        }
+
+        async function createTransaction() {
+            const title = document.getElementById('txn-title').value;
+            const amount = parseInt(document.getElementById('txn-amount').value);
+            const type = document.getElementById('txn-type').value;
+            const accountId = document.getElementById('txn-account-id').value;
+            const categoryId = document.getElementById('txn-category-id').value || null;
+            
+            try {
+                await apiCall('/transactions', 'POST', {
+                    title,
+                    amount,
+                    type,
+                    accountId,
+                    categoryId,
+                    date: new Date().toISOString()
+                });
+                alert('Transação criada!');
+            } catch (e) {
+                alert('Erro: ' + e.message);
+            }
+        }
+
+        async function toggleTransactionStatus(id) {
+            try {
+                await apiCall(`/transactions/${id}/toggle-status`, 'PUT');
+                alert('Status da transação alterado com sucesso!');
+                loadAccounts();
+                loadTransactionsByCategory();
+            } catch (e) {
+                alert('Erro: ' + e.message);
+            }
+        }
+
+        async function loadTransactionsByCategory() {
+            const catId = document.getElementById('filter-category-id').value;
+            if (!catId) return alert('Informe o ID da categoria');
+            
+            try {
+                const txns = await apiCall(`/transactions/category/${catId}`);
+                const list = document.getElementById('transactions-list');
+                list.innerHTML = '';
+                
+                if (txns.length === 0) {
+                    list.innerHTML = '<p class="text-gray-500">Nenhuma transação encontrada para essa categoria.</p>';
+                    return;
+                }
+                
+                txns.forEach(t => {
+                    const statusBadge = t.status === 'PENDING' 
+                        ? `<span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded ml-2">PENDING</span>`
+                        : `<span class="text-xs bg-green-100 text-green-800 px-2 py-1 rounded ml-2">COMPLETED</span>`;
+                        
+                    const actionLabel = t.status === 'PENDING' ? 'Efetivar' : 'Tornar Pendente';
+                    const actionColor = t.status === 'PENDING' ? 'bg-blue-500 hover:bg-blue-600' : 'bg-yellow-500 hover:bg-yellow-600';
+                    const toggleBtn = `<button onclick="toggleTransactionStatus('${t.id}')" class="text-xs ${actionColor} text-white px-2 py-1 rounded">${actionLabel}</button>`;
+
+                    list.innerHTML += `
+                        <div class="flex justify-between items-center bg-white p-3 border rounded">
+                            <div>
+                                <span class="font-bold">${t.title}</span>
+                                <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded ml-2">${t.type}</span>
+                                ${statusBadge}
+                                <div class="text-xs text-gray-500 mt-1">Valor: ${t.amount} centavos</div>
+                            </div>
+                            <div>
+                                ${toggleBtn}
+                            </div>
+                        </div>
+                    `;
+                });
+            } catch (e) {
+                alert('Erro: ' + e.message);
+            }
+        }
+    </script>
+</body>
+</html>
