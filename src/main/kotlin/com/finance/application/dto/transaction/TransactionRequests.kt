@@ -13,7 +13,12 @@ data class CreateTransactionRequest(
     val type: TransactionType,
     val destinationAccountId: UUID? = null,
     val categoryId: UUID? = null,
-    val status: TransactionStatus = TransactionStatus.PENDING
+    val status: TransactionStatus = TransactionStatus.PENDING,
+    val isRecurring: Boolean = false,
+    val recurrenceFrequency: com.finance.domain.enum.RecurrenceFrequency? = null,
+    val recurrenceInterval: Int = 1,
+    val recurrenceInstallments: Int = 12,
+    val isInfinite: Boolean = false
 )
 
 data class UpdateTransactionRequest(
@@ -21,5 +26,11 @@ data class UpdateTransactionRequest(
     val amount: Int,
     val date: LocalDateTime,
     val categoryId: UUID? = null,
-    val status: TransactionStatus
+    val status: TransactionStatus,
+    val updateAllFuture: Boolean = false,
+    val isRecurring: Boolean? = null,
+    val recurrenceFrequency: com.finance.domain.enum.RecurrenceFrequency? = null,
+    val recurrenceInterval: Int? = null,
+    val recurrenceInstallments: Int? = null,
+    val isInfinite: Boolean? = null
 )

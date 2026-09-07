@@ -16,6 +16,10 @@ object TransactionDtoMapper {
             destinationAccountId = entity.destinationAccountId,
             categoryId = entity.categoryId,
             status = entity.status,
+            recurrenceGroupId = entity.recurrenceGroupId,
+            recurrenceFrequency = entity.recurrenceFrequency,
+            recurrenceInterval = entity.recurrenceInterval,
+            isInfinite = entity.isInfinite,
             createdAt = entity.createdAt,
             updatedAt = entity.updatedAt
         )

@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.util.UUID
 
@@ -42,7 +43,7 @@ class TransactionController(
     fun create(
         @RequestBody request: CreateTransactionRequest,
         @AuthenticationPrincipal authenticatedUser: UserEntity
-    ): ResponseEntity<TransactionResponse> {
+    ): ResponseEntity<List<TransactionResponse>> {
         val response = createTransactionUseCase.execute(authenticatedUser.id, request)
         return ResponseEntity.status(HttpStatus.CREATED).body(response)
     }
@@ -62,9 +63,10 @@ class TransactionController(
     @Operation(summary = "Deletar transação")
     fun delete(
         @PathVariable id: UUID,
+        @RequestParam(defaultValue = "false") deleteAllFuture: Boolean,
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<Void> {
-        deleteTransactionUseCase.execute(authenticatedUser.id, id)
+        deleteTransactionUseCase.execute(authenticatedUser.id, id, deleteAllFuture)
         return ResponseEntity.noContent().build()
     }
 

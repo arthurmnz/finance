@@ -37,4 +37,24 @@ class TransactionRepositoryImpl(
     override fun delete(id: UUID) {
         springDataTransactionRepository.deleteById(id)
     }
+
+    override fun deleteAll(ids: List<UUID>) {
+        springDataTransactionRepository.deleteAllById(ids)
+    }
+
+    override fun saveAll(transactions: List<TransactionEntity>): List<TransactionEntity> {
+        val jpaEntities = transactions.map { mapper.toJpaEntity(it) }
+        val savedEntities = springDataTransactionRepository.saveAll(jpaEntities)
+        return savedEntities.map { mapper.toDomain(it) }
+    }
+
+    override fun findLatestInfiniteTransactions(): List<TransactionEntity> {
+        return springDataTransactionRepository.findLatestInfiniteTransactions()
+            .map { mapper.toDomain(it) }
+    }
+
+    override fun findFutureTransactionsByGroupId(groupId: UUID, date: java.time.LocalDateTime): List<TransactionEntity> {
+        return springDataTransactionRepository.findFutureTransactionsByGroupId(groupId, date)
+            .map { mapper.toDomain(it) }
+    }
 }

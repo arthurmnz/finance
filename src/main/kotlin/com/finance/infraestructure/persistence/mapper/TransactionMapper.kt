@@ -18,6 +18,10 @@ class TransactionMapper {
             destinationAccountId = jpaEntity.destinationAccountId,
             categoryId = jpaEntity.categoryId,
             status = jpaEntity.status,
+            recurrenceGroupId = jpaEntity.recurrenceGroupId,
+            recurrenceFrequency = jpaEntity.recurrenceFrequency,
+            recurrenceInterval = jpaEntity.recurrenceInterval,
+            isInfinite = jpaEntity.isInfinite ?: false,
             createdAt = jpaEntity.createdAt,
             updatedAt = jpaEntity.updatedAt
         )
@@ -35,6 +39,10 @@ class TransactionMapper {
             destinationAccountId = domainEntity.destinationAccountId,
             categoryId = domainEntity.categoryId,
             status = domainEntity.status,
+            recurrenceGroupId = domainEntity.recurrenceGroupId,
+            recurrenceFrequency = domainEntity.recurrenceFrequency,
+            recurrenceInterval = domainEntity.recurrenceInterval,
+            isInfinite = domainEntity.isInfinite,
             createdAt = domainEntity.createdAt,
             updatedAt = domainEntity.updatedAt
         )

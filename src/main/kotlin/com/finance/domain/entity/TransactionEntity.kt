@@ -16,6 +16,10 @@ class TransactionEntity(
     destinationAccountId: UUID?,
     categoryId: UUID?,
     status: TransactionStatus,
+    val recurrenceGroupId: UUID? = null,
+    val recurrenceFrequency: com.finance.domain.enum.RecurrenceFrequency? = null,
+    val recurrenceInterval: Int? = null,
+    val isInfinite: Boolean = false,
     val createdAt: LocalDateTime = LocalDateTime.now(),
     updatedAt: LocalDateTime = LocalDateTime.now()
 ) {
@@ -66,7 +70,11 @@ class TransactionEntity(
         type: TransactionType,
         destinationAccountId: UUID?,
         categoryId: UUID?,
-        status: TransactionStatus
+        status: TransactionStatus,
+        recurrenceGroupId: UUID? = null,
+        recurrenceFrequency: com.finance.domain.enum.RecurrenceFrequency? = null,
+        recurrenceInterval: Int? = null,
+        isInfinite: Boolean = false
     ) : this(
         id = UUID.randomUUID(),
         title = title,
@@ -78,6 +86,10 @@ class TransactionEntity(
         destinationAccountId = destinationAccountId,
         categoryId = categoryId,
         status = status,
+        recurrenceGroupId = recurrenceGroupId,
+        recurrenceFrequency = recurrenceFrequency,
+        recurrenceInterval = recurrenceInterval,
+        isInfinite = isInfinite,
         createdAt = LocalDateTime.now(),
         updatedAt = LocalDateTime.now()
     )

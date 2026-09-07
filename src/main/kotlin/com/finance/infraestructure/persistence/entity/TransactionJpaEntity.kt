@@ -1,5 +1,6 @@
 package com.finance.infraestructure.persistence.entity
 
+import com.finance.domain.enum.RecurrenceFrequency
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
 import jakarta.persistence.Column
@@ -46,6 +47,19 @@ class TransactionJpaEntity(
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 50)
     var status: TransactionStatus,
+
+    @Column(name = "recurrence_group_id")
+    var recurrenceGroupId: UUID? = null,
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "recurrence_frequency", length = 50)
+    var recurrenceFrequency: RecurrenceFrequency? = null,
+
+    @Column(name = "recurrence_interval")
+    var recurrenceInterval: Int? = null,
+
+    @Column(name = "is_infinite")
+    var isInfinite: Boolean? = false,
 
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: LocalDateTime = LocalDateTime.now(),

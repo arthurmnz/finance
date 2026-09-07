@@ -16,6 +16,10 @@ data class TransactionResponse(
     val destinationAccountId: UUID?,
     val categoryId: UUID?,
     val status: TransactionStatus,
+    val recurrenceGroupId: UUID?,
+    val recurrenceFrequency: com.finance.domain.enum.RecurrenceFrequency?,
+    val recurrenceInterval: Int?,
+    val isInfinite: Boolean,
     val createdAt: LocalDateTime,
     val updatedAt: LocalDateTime
 )

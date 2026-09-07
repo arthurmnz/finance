@@ -17,7 +17,7 @@ class DeleteTransactionUseCase(
     private val accountRepository: AccountRepository
 ) {
     @Transactional
-    fun execute(userId: UUID, transactionId: UUID) {
+    fun execute(userId: UUID, transactionId: UUID, deleteAllFuture: Boolean = false) {
         val transaction = transactionRepository.findById(transactionId)
             ?: throw TransactionNotFoundException()
 
@@ -25,24 +25,37 @@ class DeleteTransactionUseCase(
             throw UnauthorizedException("You can only delete transactions you created")
         }
 
-        if (transaction.status == TransactionStatus.COMPLETED) {
-            val account = accountRepository.findById(transaction.accountId)
-                ?: throw AccountNotFoundException("Account not found")
+        val transactionsToDelete = mutableListOf(transaction)
 
-            when (transaction.type) {
-                TransactionType.INCOME -> account.subtractBalance(transaction.amount)
-                TransactionType.EXPENSE -> account.addBalance(transaction.amount)
-                TransactionType.TRANSFER -> {
-                    account.addBalance(transaction.amount)
-                    val destinationAccount = transaction.destinationAccountId?.let { accountRepository.findById(it) }
-                        ?: throw AccountNotFoundException("Destination account not found")
-                    destinationAccount.subtractBalance(transaction.amount)
-                    accountRepository.save(destinationAccount)
-                }
-            }
-            accountRepository.save(account)
+        if (deleteAllFuture && transaction.recurrenceGroupId != null) {
+            val futureTransactions = transactionRepository.findFutureTransactionsByGroupId(
+                groupId = transaction.recurrenceGroupId,
+                date = transaction.date
+            )
+            transactionsToDelete.addAll(futureTransactions)
         }
 
-        transactionRepository.delete(transactionId)
+        // Revert balances for COMPLETED transactions
+        for (tx in transactionsToDelete) {
+            if (tx.status == TransactionStatus.COMPLETED) {
+                val account = accountRepository.findById(tx.accountId)
+                    ?: throw AccountNotFoundException("Account not found")
+
+                when (tx.type) {
+                    TransactionType.INCOME -> account.subtractBalance(tx.amount)
+                    TransactionType.EXPENSE -> account.addBalance(tx.amount)
+                    TransactionType.TRANSFER -> {
+                        account.addBalance(tx.amount)
+                        val destinationAccount = tx.destinationAccountId?.let { accountRepository.findById(it) }
+                            ?: throw AccountNotFoundException("Destination account not found")
+                        destinationAccount.subtractBalance(tx.amount)
+                        accountRepository.save(destinationAccount)
+                    }
+                }
+                accountRepository.save(account)
+            }
+        }
+
+        transactionRepository.deleteAll(transactionsToDelete.map { it.id })
     }
 }
