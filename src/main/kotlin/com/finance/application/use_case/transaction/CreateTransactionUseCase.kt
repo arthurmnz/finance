@@ -25,7 +25,18 @@ class CreateTransactionUseCase(
         val transactionsToSave = mutableListOf<TransactionEntity>()
         var currentDate = request.date
 
-        val installments = if (request.isRecurring) request.recurrenceInstallments else 1
+        var installments = if (request.isRecurring or (request.recurrenceInstallments < 0)) request.recurrenceInstallments else 1
+
+        if (request.isRecurring and request.isInfinite) {
+            installments = 1
+            installments = when (request.recurrenceFrequency) {
+                RecurrenceFrequency.DAILY -> installments * 364;
+                RecurrenceFrequency.WEEKLY -> installments * 47;
+                RecurrenceFrequency.MONTHLY -> installments * 11;
+                RecurrenceFrequency.YEARLY -> installments
+                else -> 0
+            }
+        }
 
         for (i in 0 until installments) {
             val transaction = TransactionEntity(

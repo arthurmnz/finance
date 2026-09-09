@@ -247,7 +247,7 @@ class GlobalExceptionHandler {
         val error = ErrorResponse(
             status = HttpStatus.INTERNAL_SERVER_ERROR.value(),
             error = HttpStatus.INTERNAL_SERVER_ERROR.reasonPhrase,
-            message = "Ocorreu um erro interno no servidor."
+            message = "Ocorreu um erro interno no servidor. -" + ex
         )
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error)
     }
