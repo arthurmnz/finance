@@ -11,6 +11,7 @@ import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccountNotFoundException
+import com.finance.domain.exception.InvalidTransactionException
 import com.finance.domain.repository.AccountRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -36,8 +37,7 @@ class UpdateTransactionUseCase(
         val newStatus = request.status
         val newAmount = request.amount
 
-        // Helper func
-        fun adjustBalancesForTx(tx: com.finance.domain.entity.TransactionEntity, amountToAdjust: Int, revert: Boolean = false) {
+        fun adjustBalancesForTx(tx: TransactionEntity, amountToAdjust: Int, revert: Boolean = false) {
             val account = accountRepository.findById(tx.accountId)
                 ?: throw AccountNotFoundException("Account not found")
 

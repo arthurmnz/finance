@@ -59,4 +59,13 @@ class TransactionRepositoryImpl(
         return springDataTransactionRepository.findFutureTransactionsByGroupId(groupId, date)
             .map { mapper.toDomain(it) }
     }
+
+    override fun findByAccountIdInAndDateBetween(
+        accountIds: List<UUID>,
+        startDate: LocalDate,
+        endDate: LocalDate
+    ): List<TransactionEntity> {
+        return springDataTransactionRepository.findByAccountIdInAndDateBetween(accountIds, startDate, endDate)
+            .map { mapper.toDomain(it) }
+    }
 }

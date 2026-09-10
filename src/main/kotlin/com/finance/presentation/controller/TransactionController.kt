@@ -74,9 +74,11 @@ class TransactionController(
     @Operation(summary = "Listar transações de uma conta")
     fun listAccountTransactions(
         @PathVariable accountId: UUID,
+        @RequestParam(required = false) month: Int?,
+        @RequestParam(required = false) year: Int?,
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<List<TransactionResponse>> {
-        val response = listAccountTransactionsUseCase.execute(accountId)
+        val response = listAccountTransactionsUseCase.execute(accountId, month, year)
         return ResponseEntity.ok(response)
     }
 
@@ -84,9 +86,11 @@ class TransactionController(
     @Operation(summary = "Listar transações de uma categoria")
     fun listCategoryTransactions(
         @PathVariable categoryId: UUID,
+        @RequestParam(required = false) month: Int?,
+        @RequestParam(required = false) year: Int?,
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<List<TransactionResponse>> {
-        val response = listCategoryTransactionsUseCase.execute(categoryId)
+        val response = listCategoryTransactionsUseCase.execute(categoryId, month, year)
         return ResponseEntity.ok(response)
     }
 

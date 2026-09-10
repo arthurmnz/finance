@@ -76,12 +76,14 @@ class AccountController(
     }
 
     @GetMapping("/total-balance")
-    @Operation(summary = "Balanço total do usuário", description = "Retorna a soma dos balanços de todas as contas, podendo ignorar algumas.")
+    @Operation(summary = "Balanço total do usuário", description = "Retorna a soma dos balanços de todas as contas, podendo ignorar algumas. O mês e ano podem ser passados para filtrar as despesas e receitas do mês.")
     fun getTotalBalance(
         @RequestParam(required = false) ignoreIds: Set<UUID>?,
+        @RequestParam(required = false) month: Int?,
+        @RequestParam(required = false) year: Int?,
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<TotalBalanceResponse> {
-        val response = getTotalBalanceUseCase.execute(authenticatedUser.id, ignoreIds)
+        val response = getTotalBalanceUseCase.execute(authenticatedUser.id, ignoreIds, month, year)
         return ResponseEntity.ok(response)
     }
 
