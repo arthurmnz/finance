@@ -2,6 +2,7 @@ package com.finance.infraestructure.persistence.repository
 
 import com.finance.infraestructure.persistence.entity.TransactionJpaEntity
 import org.springframework.data.jpa.repository.JpaRepository
+import java.time.LocalDate
 import java.util.UUID
 
 interface SpringDataTransactionRepository : JpaRepository<TransactionJpaEntity, UUID> {
@@ -20,5 +21,5 @@ interface SpringDataTransactionRepository : JpaRepository<TransactionJpaEntity, 
         WHERE t.recurrenceGroupId = :groupId
         AND t.date > :date
     """)
-    fun findFutureTransactionsByGroupId(groupId: UUID, date: java.time.LocalDateTime): List<TransactionJpaEntity>
+    fun findFutureTransactionsByGroupId(groupId: UUID, date: LocalDate): List<TransactionJpaEntity>
 }

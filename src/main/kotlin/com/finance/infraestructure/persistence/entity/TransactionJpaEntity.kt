@@ -9,6 +9,7 @@ import jakarta.persistence.EnumType
 import jakarta.persistence.Enumerated
 import jakarta.persistence.Id
 import jakarta.persistence.Table
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.UUID
 
@@ -26,7 +27,7 @@ class TransactionJpaEntity(
     var amount: Int,
 
     @Column(name = "date", nullable = false)
-    var date: LocalDateTime,
+    var date: LocalDate,
 
     @Column(name = "responsible_id", nullable = false)
     var responsibleId: UUID,

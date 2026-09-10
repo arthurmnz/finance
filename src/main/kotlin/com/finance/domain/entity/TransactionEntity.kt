@@ -2,6 +2,7 @@ package com.finance.domain.entity
 
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.UUID
 
@@ -9,7 +10,7 @@ class TransactionEntity(
     val id: UUID,
     title: String,
     amount: Int,
-    date: LocalDateTime,
+    date: LocalDate,
     responsibleId: UUID,
     accountId: UUID,
     type: TransactionType,
@@ -29,7 +30,7 @@ class TransactionEntity(
     var amount: Int = amount
         private set
 
-    var date: LocalDateTime = date
+    var date: LocalDate = date
         private set
 
     var responsibleId: UUID = responsibleId
@@ -64,7 +65,7 @@ class TransactionEntity(
     constructor(
         title: String,
         amount: Int,
-        date: LocalDateTime,
+        date: LocalDate,
         responsibleId: UUID,
         accountId: UUID,
         type: TransactionType,
@@ -97,7 +98,7 @@ class TransactionEntity(
     fun update(
         newTitle: String,
         newAmount: Int,
-        newDate: LocalDateTime,
+        newDate: LocalDate,
         newCategoryId: UUID?,
         newStatus: TransactionStatus
     ) {

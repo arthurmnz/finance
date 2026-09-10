@@ -4,6 +4,8 @@ import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.repository.TransactionRepository
 import com.finance.infraestructure.persistence.mapper.TransactionMapper
 import org.springframework.stereotype.Repository
+import java.time.LocalDate
+import java.time.LocalDateTime
 import java.util.UUID
 
 @Repository
@@ -53,7 +55,7 @@ class TransactionRepositoryImpl(
             .map { mapper.toDomain(it) }
     }
 
-    override fun findFutureTransactionsByGroupId(groupId: UUID, date: java.time.LocalDateTime): List<TransactionEntity> {
+    override fun findFutureTransactionsByGroupId(groupId: UUID, date: LocalDate): List<TransactionEntity> {
         return springDataTransactionRepository.findFutureTransactionsByGroupId(groupId, date)
             .map { mapper.toDomain(it) }
     }

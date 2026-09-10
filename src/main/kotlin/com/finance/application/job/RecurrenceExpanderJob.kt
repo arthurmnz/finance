@@ -6,6 +6,7 @@ import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.repository.TransactionRepository
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.UUID
 
@@ -19,7 +20,7 @@ class RecurrenceExpanderJob(
         val latestTransactions = transactionRepository.findLatestInfiniteTransactions()
         
         val transactionsToSave = mutableListOf<TransactionEntity>()
-        val limitDate = LocalDateTime.now().plusMonths(12) // Keep a 12-month window
+        val limitDate = LocalDate.now().plusMonths(12) // Keep a 12-month window
 
         for (latest in latestTransactions) {
             val frequency = latest.recurrenceFrequency ?: continue
@@ -56,10 +57,10 @@ class RecurrenceExpanderJob(
     }
 
     private fun calculateNextDate(
-        currentDate: LocalDateTime,
+        currentDate: LocalDate,
         frequency: RecurrenceFrequency,
         interval: Int
-    ): LocalDateTime {
+    ): LocalDate {
         return when (frequency) {
             RecurrenceFrequency.DAILY -> currentDate.plusDays(interval.toLong())
             RecurrenceFrequency.WEEKLY -> currentDate.plusWeeks(interval.toLong())

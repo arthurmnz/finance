@@ -3,13 +3,13 @@ package com.finance.application.dto.transaction
 import com.finance.domain.enum.RecurrenceFrequency
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
-import java.time.LocalDateTime
+import java.time.LocalDate
 import java.util.UUID
 
 data class CreateTransactionRequest(
     val title: String,
     val amount: Int,
-    val date: LocalDateTime,
+    val date: LocalDate,
     val accountId: UUID,
     val type: TransactionType,
     val destinationAccountId: UUID? = null,
@@ -25,7 +25,7 @@ data class CreateTransactionRequest(
 data class UpdateTransactionRequest(
     val title: String,
     val amount: Int,
-    val date: LocalDateTime,
+    val date: LocalDate,
     val categoryId: UUID? = null,
     val status: TransactionStatus,
     val updateAllFuture: Boolean = false,

@@ -1,6 +1,7 @@
 package com.finance.domain.repository
 
 import com.finance.domain.entity.TransactionEntity
+import java.time.LocalDate
 import java.util.UUID
 
 interface TransactionRepository {
@@ -12,5 +13,5 @@ interface TransactionRepository {
     fun deleteAll(ids: List<UUID>)
     fun saveAll(transactions: List<TransactionEntity>): List<TransactionEntity>
     fun findLatestInfiniteTransactions(): List<TransactionEntity>
-    fun findFutureTransactionsByGroupId(groupId: UUID, date: java.time.LocalDateTime): List<TransactionEntity>
+    fun findFutureTransactionsByGroupId(groupId: UUID, date: LocalDate): List<TransactionEntity>
 }

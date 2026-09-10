@@ -3,6 +3,8 @@ package com.finance.application.use_case.transaction
 import com.finance.application.dto.transaction.UpdateTransactionRequest
 import com.finance.application.dto.transaction.TransactionResponse
 import com.finance.application.mapper.TransactionDtoMapper
+import com.finance.domain.entity.TransactionEntity
+import com.finance.domain.enum.RecurrenceFrequency
 import com.finance.domain.exception.TransactionNotFoundException
 import com.finance.domain.exception.UnauthorizedException
 import com.finance.domain.repository.TransactionRepository
@@ -12,6 +14,7 @@ import com.finance.domain.exception.AccountNotFoundException
 import com.finance.domain.repository.AccountRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.LocalDate
 import java.util.UUID
 
 @Service
@@ -108,7 +111,6 @@ class UpdateTransactionUseCase(
             )
         }
 
-        // If rule changed, we must regenerate the future ones here
         val savedTransactions = transactionRepository.saveAll(transactionsToUpdate)
         val responseList = savedTransactions.map { TransactionDtoMapper.toResponse(it) }.toMutableList()
 
@@ -120,11 +122,11 @@ class UpdateTransactionUseCase(
             
             val limit = if (isInf) 12 else (request.recurrenceInstallments ?: 12)
             
-            val newlyGenerated = mutableListOf<com.finance.domain.entity.TransactionEntity>()
+            val newlyGenerated = mutableListOf<TransactionEntity>()
             for (i in 1..limit) { // Start from 1 because 0 is the current transaction
                 currentDate = calculateNextDate(currentDate, freq, interval)
                 
-                val newTx = com.finance.domain.entity.TransactionEntity(
+                val newTx = TransactionEntity(
                     title = request.title,
                     amount = request.amount,
                     date = currentDate,
@@ -151,15 +153,15 @@ class UpdateTransactionUseCase(
     }
 
     private fun calculateNextDate(
-        currentDate: java.time.LocalDateTime,
-        frequency: com.finance.domain.enum.RecurrenceFrequency,
+        currentDate: LocalDate,
+        frequency: RecurrenceFrequency,
         interval: Int
-    ): java.time.LocalDateTime {
+    ): LocalDate {
         return when (frequency) {
-            com.finance.domain.enum.RecurrenceFrequency.DAILY -> currentDate.plusDays(interval.toLong())
-            com.finance.domain.enum.RecurrenceFrequency.WEEKLY -> currentDate.plusWeeks(interval.toLong())
-            com.finance.domain.enum.RecurrenceFrequency.MONTHLY -> currentDate.plusMonths(interval.toLong())
-            com.finance.domain.enum.RecurrenceFrequency.YEARLY -> currentDate.plusYears(interval.toLong())
+            RecurrenceFrequency.DAILY -> currentDate.plusDays(interval.toLong())
+            RecurrenceFrequency.WEEKLY -> currentDate.plusWeeks(interval.toLong())
+            RecurrenceFrequency.MONTHLY -> currentDate.plusMonths(interval.toLong())
+            RecurrenceFrequency.YEARLY -> currentDate.plusYears(interval.toLong())
         }
     }
 

@@ -9,6 +9,7 @@ import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.enum.RecurrenceFrequency
 import com.finance.domain.exception.AccountNotFoundException
+import com.finance.domain.exception.InvalidTransactionException
 import com.finance.domain.repository.AccountRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -25,14 +26,20 @@ class CreateTransactionUseCase(
         val transactionsToSave = mutableListOf<TransactionEntity>()
         var currentDate = request.date
 
-        var installments = if (request.isRecurring or (request.recurrenceInstallments < 0)) request.recurrenceInstallments else 1
+        if (request.recurrenceInstallments < 0)
+            throw InvalidTransactionException("A quantidade de parcelas não pode ser negativa.")
 
-        if (request.isRecurring and request.isInfinite) {
+        if (request.recurrenceInterval <= 0 && request.isRecurring)
+            throw InvalidTransactionException("O Intervalo não pode ser nulo ou negativo.")
+
+        var installments = if (request.isRecurring) request.recurrenceInstallments else 1
+
+        if (request.isRecurring && request.isInfinite) {
             installments = 1
             installments = when (request.recurrenceFrequency) {
-                RecurrenceFrequency.DAILY -> installments * 364;
-                RecurrenceFrequency.WEEKLY -> installments * 47;
-                RecurrenceFrequency.MONTHLY -> installments * 11;
+                RecurrenceFrequency.DAILY -> installments * 365;
+                RecurrenceFrequency.WEEKLY -> installments * 48;
+                RecurrenceFrequency.MONTHLY -> installments * 12;
                 RecurrenceFrequency.YEARLY -> installments
                 else -> 0
             }
@@ -56,7 +63,6 @@ class CreateTransactionUseCase(
             )
             transactionsToSave.add(transaction)
 
-            // Calculate next date
             if (request.isRecurring && request.recurrenceFrequency != null) {
                 currentDate = when (request.recurrenceFrequency) {
                     RecurrenceFrequency.DAILY -> currentDate.plusDays(request.recurrenceInterval.toLong())
@@ -67,11 +73,10 @@ class CreateTransactionUseCase(
             }
         }
 
-        // Balance logic only for the first transaction if it is COMPLETED
         val firstTransaction = transactionsToSave.first()
         if (firstTransaction.status == TransactionStatus.COMPLETED) {
             val account = accountRepository.findById(request.accountId) 
-                ?: throw AccountNotFoundException("Account not found")
+                ?: throw AccountNotFoundException("Conta não encontrada")
 
             when (firstTransaction.type) {
                 TransactionType.INCOME -> account.addBalance(firstTransaction.amount)
@@ -79,7 +84,7 @@ class CreateTransactionUseCase(
                 TransactionType.TRANSFER -> {
                     account.subtractBalance(firstTransaction.amount)
                     val destinationAccount = request.destinationAccountId?.let { accountRepository.findById(it) }
-                        ?: throw AccountNotFoundException("Destination account not found")
+                        ?: throw AccountNotFoundException("Destinatario não encontrado")
                     destinationAccount.addBalance(firstTransaction.amount)
                     accountRepository.save(destinationAccount)
                 }
