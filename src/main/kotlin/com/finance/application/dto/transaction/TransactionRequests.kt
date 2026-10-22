@@ -19,7 +19,16 @@ data class CreateTransactionRequest(
     val recurrenceFrequency: RecurrenceFrequency? = null,
     val recurrenceInterval: Int = 1,
     val recurrenceInstallments: Int = 12,
-    val isInfinite: Boolean = false
+    val isInfinite: Boolean = false,
+    val creditCardId: UUID? = null,
+    val invoiceMonth: Int? = null,
+    val invoiceYear: Int? = null,
+    /**
+     * Para compras parceladas no cartão:
+     * - "INSTALLMENT" (padrão): [amount] já é o valor de cada parcela.
+     * - "TOTAL": [amount] é o valor total da compra e será dividido pelas parcelas.
+     */
+    val installmentAmountMode: String? = "INSTALLMENT"
 )
 
 data class UpdateTransactionRequest(
@@ -33,5 +42,7 @@ data class UpdateTransactionRequest(
     val recurrenceFrequency: RecurrenceFrequency? = null,
     val recurrenceInterval: Int? = null,
     val recurrenceInstallments: Int? = null,
-    val isInfinite: Boolean? = null
+    val isInfinite: Boolean? = null,
+    val invoiceMonth: Int? = null,
+    val invoiceYear: Int? = null
 )

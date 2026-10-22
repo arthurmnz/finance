@@ -22,6 +22,11 @@ class TransactionMapper {
             recurrenceFrequency = jpaEntity.recurrenceFrequency,
             recurrenceInterval = jpaEntity.recurrenceInterval,
             isInfinite = jpaEntity.isInfinite ?: false,
+            creditCardId = jpaEntity.creditCardId,
+            invoiceMonth = jpaEntity.invoiceMonth,
+            invoiceYear = jpaEntity.invoiceYear,
+            installmentNumber = jpaEntity.installmentNumber,
+            totalInstallments = jpaEntity.totalInstallments,
             createdAt = jpaEntity.createdAt,
             updatedAt = jpaEntity.updatedAt
         )
@@ -43,6 +48,11 @@ class TransactionMapper {
             recurrenceFrequency = domainEntity.recurrenceFrequency,
             recurrenceInterval = domainEntity.recurrenceInterval,
             isInfinite = domainEntity.isInfinite,
+            creditCardId = domainEntity.creditCardId,
+            invoiceMonth = domainEntity.invoiceMonth,
+            invoiceYear = domainEntity.invoiceYear,
+            installmentNumber = domainEntity.installmentNumber,
+            totalInstallments = domainEntity.totalInstallments,
             createdAt = domainEntity.createdAt,
             updatedAt = domainEntity.updatedAt
         )

@@ -3,33 +3,33 @@ package com.finance.application.job
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.enum.RecurrenceFrequency
 import com.finance.domain.enum.TransactionStatus
+import com.finance.domain.repository.CreditCardRepository
 import com.finance.domain.repository.TransactionRepository
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import java.time.LocalDate
-import java.time.LocalDateTime
-import java.util.UUID
 
 @Component
 class RecurrenceExpanderJob(
-    private val transactionRepository: TransactionRepository
+    private val transactionRepository: TransactionRepository,
+    private val creditCardRepository: CreditCardRepository
 ) {
-    // Run every day at 3 AM
     @Scheduled(cron = "0 0 3 * * *")
     fun expandInfiniteRecurrences() {
         val latestTransactions = transactionRepository.findLatestInfiniteTransactions()
-        
+
         val transactionsToSave = mutableListOf<TransactionEntity>()
-        val limitDate = LocalDate.now().plusMonths(12) // Keep a 12-month window
+        val limitDate = LocalDate.now().plusMonths(12)
 
         for (latest in latestTransactions) {
             val frequency = latest.recurrenceFrequency ?: continue
             val interval = latest.recurrenceInterval ?: 1
+            val card = latest.creditCardId?.let { creditCardRepository.findById(it) }
 
             var currentDate = calculateNextDate(latest.date, frequency, interval)
 
-            // Generate new transactions until we reach the 12-month limit
             while (currentDate.isBefore(limitDate)) {
+                val ym = card?.defaultInvoiceMonthYear(currentDate)
                 val newTransaction = TransactionEntity(
                     title = latest.title,
                     amount = latest.amount,
@@ -39,14 +39,16 @@ class RecurrenceExpanderJob(
                     type = latest.type,
                     destinationAccountId = latest.destinationAccountId,
                     categoryId = latest.categoryId,
-                    status = TransactionStatus.PENDING,
+                    status = if (card != null) TransactionStatus.COMPLETED else TransactionStatus.PENDING,
                     recurrenceGroupId = latest.recurrenceGroupId,
-                    recurrenceFrequency = frequency,
-                    recurrenceInterval = interval,
-                    isInfinite = true
+                    recurrenceFrequency = latest.recurrenceFrequency,
+                    recurrenceInterval = latest.recurrenceInterval,
+                    isInfinite = true,
+                    creditCardId = latest.creditCardId,
+                    invoiceMonth = ym?.monthValue,
+                    invoiceYear = ym?.year
                 )
                 transactionsToSave.add(newTransaction)
-
                 currentDate = calculateNextDate(currentDate, frequency, interval)
             }
         }
@@ -56,11 +58,7 @@ class RecurrenceExpanderJob(
         }
     }
 
-    private fun calculateNextDate(
-        currentDate: LocalDate,
-        frequency: RecurrenceFrequency,
-        interval: Int
-    ): LocalDate {
+    private fun calculateNextDate(currentDate: LocalDate, frequency: RecurrenceFrequency, interval: Int): LocalDate {
         return when (frequency) {
             RecurrenceFrequency.DAILY -> currentDate.plusDays(interval.toLong())
             RecurrenceFrequency.WEEKLY -> currentDate.plusWeeks(interval.toLong())

@@ -7,6 +7,7 @@ import com.finance.application.dto.account.TotalBalanceResponse
 import com.finance.application.dto.account.UpdateAccountRequest
 import com.finance.application.use_case.account.AcceptAccountGroupRequestUseCase
 import com.finance.application.use_case.account.CreateAccountUseCase
+import com.finance.application.use_case.account.DeleteAccountUseCase
 import com.finance.application.use_case.account.GetTotalBalanceUseCase
 import com.finance.application.use_case.account.LinkAccountToGroupUseCase
 import com.finance.application.use_case.account.ListGroupAccountsUseCase
@@ -42,7 +43,8 @@ class AccountController(
     private val listMyAccountsUseCase: ListMyAccountsUseCase,
     private val getTotalBalanceUseCase: GetTotalBalanceUseCase,
     private val linkAccountToGroupUseCase: LinkAccountToGroupUseCase,
-    private val unlinkAccountFromGroupUseCase: UnlinkAccountFromGroupUseCase
+    private val unlinkAccountFromGroupUseCase: UnlinkAccountFromGroupUseCase,
+    private val deleteAccountUseCase: DeleteAccountUseCase
 ) {
 
     @PostMapping
@@ -109,6 +111,16 @@ class AccountController(
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<Void> {
         unlinkAccountFromGroupUseCase.execute(id, authenticatedUser.id)
+        return ResponseEntity.noContent().build()
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Excluir conta", description = "Somente o dono da conta. Remove também as transações da conta e reverte os saldos de transferências recebidas.")
+    fun delete(
+        @PathVariable id: UUID,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<Void> {
+        deleteAccountUseCase.execute(id, authenticatedUser.id)
         return ResponseEntity.noContent().build()
     }
 }

@@ -1,12 +1,12 @@
 package com.finance.application.use_case.transaction
 
-import com.finance.domain.exception.TransactionNotFoundException
-import com.finance.domain.exception.UnauthorizedException
-import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccountNotFoundException
+import com.finance.domain.exception.TransactionNotFoundException
+import com.finance.domain.exception.UnauthorizedException
 import com.finance.domain.repository.AccountRepository
+import com.finance.domain.repository.TransactionRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -35,9 +35,8 @@ class DeleteTransactionUseCase(
             transactionsToDelete.addAll(futureTransactions)
         }
 
-        // Revert balances for COMPLETED transactions
         for (tx in transactionsToDelete) {
-            if (tx.status == TransactionStatus.COMPLETED) {
+            if (tx.creditCardId == null && tx.status == TransactionStatus.COMPLETED) {
                 val account = accountRepository.findById(tx.accountId)
                     ?: throw AccountNotFoundException("Account not found")
 

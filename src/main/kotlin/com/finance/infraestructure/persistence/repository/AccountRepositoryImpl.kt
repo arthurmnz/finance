@@ -48,4 +48,9 @@ class AccountRepositoryImpl(
     override fun deleteAllByOwnerId(ownerId: UUID) {
         springDataAccountRepository.deleteAllByOwnerId(ownerId)
     }
+
+    @Transactional
+    override fun deleteById(id: UUID) {
+        springDataAccountRepository.deleteById(id)
+    }
 }

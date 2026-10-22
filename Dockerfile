@@ -1,4 +1,4 @@
-FROM eclipse-temurin:17-jdk-alpine as build
+FROM eclipse-temurin:17-jdk-alpine AS build
 WORKDIR /workspace/app
 
 COPY gradlew .
@@ -8,10 +8,14 @@ COPY settings.gradle.kts .
 COPY src src
 
 RUN chmod +x gradlew
-RUN ./gradlew build -x test
+RUN ./gradlew bootJar -x test --no-daemon
 
 FROM eclipse-temurin:17-jre-alpine
-VOLUME /tmp
-COPY --from=build /workspace/app/build/libs/*-SNAPSHOT.jar app.jar
+ENV TZ=America/Sao_Paulo
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+WORKDIR /app
+COPY --from=build /workspace/app/build/libs/*-SNAPSHOT.jar /app/app.jar
+RUN chown -R appuser:appgroup /app
+USER appuser
 EXPOSE 8080
-ENTRYPOINT ["java","-jar","/app.jar"]
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-Duser.timezone=America/Sao_Paulo", "-jar", "/app/app.jar"]

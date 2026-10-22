@@ -9,6 +9,8 @@ import java.time.Duration
 class AuthCookieUtil(
     @Value("\${security.cookie.secure:false}")
     private val isSecureCookie: Boolean = false,
+    @Value("\${security.cookie.same-site:Strict}")
+    private val sameSite: String = "Strict",
 ) {
     companion object {
         const val REFRESH_TOKEN_COOKIE_NAME = "refreshToken"
@@ -21,7 +23,7 @@ class AuthCookieUtil(
             .secure(isSecureCookie)
             .path(REFRESH_TOKEN_PATH)
             .maxAge(duration)
-            .sameSite("Strict")
+            .sameSite(sameSite)
             .build()
     }
 
@@ -31,7 +33,7 @@ class AuthCookieUtil(
             .secure(isSecureCookie)
             .path(REFRESH_TOKEN_PATH)
             .maxAge(0)
-            .sameSite("Strict")
+            .sameSite(sameSite)
             .build()
     }
 }

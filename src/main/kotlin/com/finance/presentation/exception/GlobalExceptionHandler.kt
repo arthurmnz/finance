@@ -6,6 +6,7 @@ import com.finance.domain.exception.AccountGroupRequestAlreadyExistsException
 import com.finance.domain.exception.AccountGroupRequestNotFoundException
 import com.finance.domain.exception.AccountHasLinkedGroupException
 import com.finance.domain.exception.AccountNotFoundException
+import com.finance.domain.exception.CreditCardNotFoundException
 import com.finance.domain.exception.FriendshipAlreadyExistsException
 import com.finance.domain.exception.FriendshipNotFoundException
 import com.finance.domain.exception.GroupFullException
@@ -20,6 +21,7 @@ import com.finance.domain.exception.CategoryNotFoundException
 import com.finance.domain.exception.TransactionNotFoundException
 import com.finance.domain.exception.InvalidTransactionException
 import com.finance.presentation.dto.ErrorResponse
+import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
@@ -31,6 +33,7 @@ import org.springframework.web.servlet.resource.NoResourceFoundException
 
 @RestControllerAdvice
 class GlobalExceptionHandler {
+    private val logger = LoggerFactory.getLogger(GlobalExceptionHandler::class.java)
 
     @ExceptionHandler(UnauthorizedException::class)
     fun handleUnauthorized(ex: UnauthorizedException): ResponseEntity<ErrorResponse> {
@@ -162,7 +165,7 @@ class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(error)
     }
 
-    @ExceptionHandler(AccountNotFoundException::class)
+    @ExceptionHandler(AccountNotFoundException::class, CreditCardNotFoundException::class)
     fun handleAccountNotFound(ex: AccountNotFoundException): ResponseEntity<ErrorResponse> {
         val error = ErrorResponse(
             status = HttpStatus.NOT_FOUND.value(),
@@ -244,10 +247,11 @@ class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception::class)
     fun handleGenericException(ex: Exception): ResponseEntity<ErrorResponse> {
+        logger.error("Erro interno inesperado no servidor", ex)
         val error = ErrorResponse(
             status = HttpStatus.INTERNAL_SERVER_ERROR.value(),
             error = HttpStatus.INTERNAL_SERVER_ERROR.reasonPhrase,
-            message = "Ocorreu um erro interno no servidor. -" + ex
+            message = "Ocorreu um erro interno no servidor."
         )
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error)
     }

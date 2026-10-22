@@ -16,3 +16,6 @@ spring:
         format_sql: true
     show-sql: true
     open-in-view: false
+
+jwt:
+  secret: test_secret_key_for_unit_and_integration_tests_minimum_256_bits_long

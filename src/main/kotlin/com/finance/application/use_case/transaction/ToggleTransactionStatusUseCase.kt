@@ -9,6 +9,7 @@ import com.finance.domain.exception.TransactionNotFoundException
 import com.finance.domain.exception.UnauthorizedException
 import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.TransactionRepository
+import com.finance.domain.repository.UserRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -16,7 +17,8 @@ import java.util.UUID
 @Service
 class ToggleTransactionStatusUseCase(
     private val transactionRepository: TransactionRepository,
-    private val accountRepository: AccountRepository
+    private val accountRepository: AccountRepository,
+    private val userRepository: UserRepository
 ) {
     @Transactional
     fun execute(userId: UUID, transactionId: UUID): TransactionResponse {
@@ -27,36 +29,33 @@ class ToggleTransactionStatusUseCase(
             throw UnauthorizedException("You can only change status of transactions you created")
         }
 
-        val account = accountRepository.findById(transaction.accountId)
-            ?: throw AccountNotFoundException("Account not found")
-
         val newStatus = if (transaction.status == TransactionStatus.COMPLETED) {
             TransactionStatus.PENDING
         } else {
             TransactionStatus.COMPLETED
         }
 
-        // Logic to revert or apply balances
-        // If moving to COMPLETED -> apply amount
-        // If moving to PENDING -> revert amount
-        val multiplier = if (newStatus == TransactionStatus.COMPLETED) 1 else -1
-        val effectiveAmount = transaction.amount * multiplier
+        if (transaction.creditCardId == null) {
+            val account = accountRepository.findById(transaction.accountId)
+                ?: throw AccountNotFoundException("Account not found")
 
-        when (transaction.type) {
-            TransactionType.INCOME -> account.addBalance(effectiveAmount)
-            TransactionType.EXPENSE -> account.subtractBalance(effectiveAmount)
-            TransactionType.TRANSFER -> {
-                account.subtractBalance(effectiveAmount)
-                val destinationAccount = transaction.destinationAccountId?.let { accountRepository.findById(it) }
-                    ?: throw AccountNotFoundException("Destination account not found")
-                destinationAccount.addBalance(effectiveAmount)
-                accountRepository.save(destinationAccount)
+            val multiplier = if (newStatus == TransactionStatus.COMPLETED) 1 else -1
+            val effectiveAmount = transaction.amount * multiplier
+
+            when (transaction.type) {
+                TransactionType.INCOME -> account.addBalance(effectiveAmount)
+                TransactionType.EXPENSE -> account.subtractBalance(effectiveAmount)
+                TransactionType.TRANSFER -> {
+                    account.subtractBalance(effectiveAmount)
+                    val destinationAccount = transaction.destinationAccountId?.let { accountRepository.findById(it) }
+                        ?: throw AccountNotFoundException("Destination account not found")
+                    destinationAccount.addBalance(effectiveAmount)
+                    accountRepository.save(destinationAccount)
+                }
             }
+            accountRepository.save(account)
         }
-        
-        accountRepository.save(account)
 
-        // Update status
         transaction.update(
             newTitle = transaction.title,
             newAmount = transaction.amount,
@@ -66,6 +65,6 @@ class ToggleTransactionStatusUseCase(
         )
 
         val updatedTransaction = transactionRepository.save(transaction)
-        return TransactionDtoMapper.toResponse(updatedTransaction)
+        return TransactionDtoMapper.toResponse(updatedTransaction, userRepository.findById(transaction.responsibleId))
     }
 }

@@ -36,6 +36,16 @@ class TransactionRepositoryImpl(
             .map { mapper.toDomain(it) }
     }
 
+    override fun findByDestinationAccountId(destinationAccountId: UUID): List<TransactionEntity> {
+        return springDataTransactionRepository.findByDestinationAccountId(destinationAccountId)
+            .map { mapper.toDomain(it) }
+    }
+
+    override fun findByCreditCardId(creditCardId: UUID): List<TransactionEntity> {
+        return springDataTransactionRepository.findByCreditCardId(creditCardId)
+            .map { mapper.toDomain(it) }
+    }
+
     override fun delete(id: UUID) {
         springDataTransactionRepository.deleteById(id)
     }

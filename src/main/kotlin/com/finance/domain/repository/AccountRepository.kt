@@ -11,4 +11,5 @@ interface AccountRepository {
     fun existsByOwnerIdAndGroupIdNotNull(ownerId: UUID): Boolean
     fun existsByOwnerIdAndGroupId(ownerId: UUID, groupId: UUID): Boolean
     fun deleteAllByOwnerId(ownerId: UUID)
+    fun deleteById(id: UUID)
 }

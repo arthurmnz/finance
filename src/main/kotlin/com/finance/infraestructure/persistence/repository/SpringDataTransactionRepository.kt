@@ -8,7 +8,9 @@ import java.util.UUID
 interface SpringDataTransactionRepository : JpaRepository<TransactionJpaEntity, UUID> {
     fun findByAccountId(accountId: UUID): List<TransactionJpaEntity>
     fun findByCategoryId(categoryId: UUID): List<TransactionJpaEntity>
-    
+    fun findByDestinationAccountId(destinationAccountId: UUID): List<TransactionJpaEntity>
+    fun findByCreditCardId(creditCardId: UUID): List<TransactionJpaEntity>
+
     @org.springframework.data.jpa.repository.Query("""
         SELECT t FROM TransactionJpaEntity t
         WHERE t.isInfinite = true

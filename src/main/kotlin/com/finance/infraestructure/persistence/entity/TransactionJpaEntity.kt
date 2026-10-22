@@ -62,6 +62,21 @@ class TransactionJpaEntity(
     @Column(name = "is_infinite")
     var isInfinite: Boolean? = false,
 
+    @Column(name = "credit_card_id")
+    var creditCardId: UUID? = null,
+
+    @Column(name = "invoice_month")
+    var invoiceMonth: Int? = null,
+
+    @Column(name = "invoice_year")
+    var invoiceYear: Int? = null,
+
+    @Column(name = "installment_number")
+    var installmentNumber: Int? = null,
+
+    @Column(name = "total_installments")
+    var totalInstallments: Int? = null,
+
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: LocalDateTime = LocalDateTime.now(),
 

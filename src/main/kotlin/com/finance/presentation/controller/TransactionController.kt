@@ -78,7 +78,7 @@ class TransactionController(
         @RequestParam(required = false) year: Int?,
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<List<TransactionResponse>> {
-        val response = listAccountTransactionsUseCase.execute(accountId, month, year)
+        val response = listAccountTransactionsUseCase.execute(accountId, month, year, authenticatedUser.id)
         return ResponseEntity.ok(response)
     }
 
@@ -90,7 +90,7 @@ class TransactionController(
         @RequestParam(required = false) year: Int?,
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<List<TransactionResponse>> {
-        val response = listCategoryTransactionsUseCase.execute(categoryId, month, year)
+        val response = listCategoryTransactionsUseCase.execute(categoryId, month, year, authenticatedUser.id)
         return ResponseEntity.ok(response)
     }
 

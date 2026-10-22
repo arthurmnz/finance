@@ -16,7 +16,7 @@ import javax.crypto.SecretKey
 
 @Component
 class JwtTokenProviderAdapter(
-    @Value("\${jwt.secret:finance_super_secret_jwt_key_that_must_be_at_least_256_bits_long_123456}")
+    @Value("\${jwt.secret}")
     private val jwtSecret: String,
 
     @Value("\${jwt.access-token-expiration-minutes:15}")
@@ -27,7 +27,10 @@ class JwtTokenProviderAdapter(
 ) : TokenProviderPort {
 
     private val secretKey: SecretKey by lazy {
-        val keyBytes = jwtSecret.padEnd(32, '0').toByteArray(StandardCharsets.UTF_8)
+        require(jwtSecret.isNotBlank() && jwtSecret.toByteArray(StandardCharsets.UTF_8).size >= 32) {
+            "JWT_SECRET deve ter pelo menos 32 bytes (256 bits)."
+        }
+        val keyBytes = jwtSecret.toByteArray(StandardCharsets.UTF_8)
         Keys.hmacShaKeyFor(keyBytes)
     }
 
@@ -52,21 +55,22 @@ class JwtTokenProviderAdapter(
         return Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes)
     }
 
-    override fun validateAndGetUserEmail(accessToken: String): String? {
+    override fun validateAndGetUserEmail(token: String): String? {
         return try {
             val claims = Jwts.parser()
                 .verifyWith(secretKey)
                 .build()
-                .parseSignedClaims(accessToken)
+                .parseSignedClaims(token)
                 .payload
+
             claims.subject
-        } catch (e: Exception) {
+        } catch (ex: Exception) {
             null
         }
     }
 
     override fun getAccessTokenExpirationSeconds(): Long {
-        return accessTokenExpirationMinutes * 60
+        return Duration.ofMinutes(accessTokenExpirationMinutes).seconds
     }
 
     override fun getRefreshTokenDuration(): Duration {

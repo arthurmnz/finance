@@ -21,6 +21,11 @@ class TransactionEntity(
     val recurrenceFrequency: com.finance.domain.enum.RecurrenceFrequency? = null,
     val recurrenceInterval: Int? = null,
     val isInfinite: Boolean = false,
+    creditCardId: UUID? = null,
+    invoiceMonth: Int? = null,
+    invoiceYear: Int? = null,
+    val installmentNumber: Int? = null,
+    val totalInstallments: Int? = null,
     val createdAt: LocalDateTime = LocalDateTime.now(),
     updatedAt: LocalDateTime = LocalDateTime.now()
 ) {
@@ -44,11 +49,20 @@ class TransactionEntity(
 
     var destinationAccountId: UUID? = destinationAccountId
         private set
-        
+
     var categoryId: UUID? = categoryId
         private set
-        
+
     var status: TransactionStatus = status
+        private set
+
+    var creditCardId: UUID? = creditCardId
+        private set
+
+    var invoiceMonth: Int? = invoiceMonth
+        private set
+
+    var invoiceYear: Int? = invoiceYear
         private set
 
     var updatedAt: LocalDateTime = updatedAt
@@ -75,7 +89,12 @@ class TransactionEntity(
         recurrenceGroupId: UUID? = null,
         recurrenceFrequency: com.finance.domain.enum.RecurrenceFrequency? = null,
         recurrenceInterval: Int? = null,
-        isInfinite: Boolean = false
+        isInfinite: Boolean = false,
+        creditCardId: UUID? = null,
+        invoiceMonth: Int? = null,
+        invoiceYear: Int? = null,
+        installmentNumber: Int? = null,
+        totalInstallments: Int? = null
     ) : this(
         id = UUID.randomUUID(),
         title = title,
@@ -91,6 +110,11 @@ class TransactionEntity(
         recurrenceFrequency = recurrenceFrequency,
         recurrenceInterval = recurrenceInterval,
         isInfinite = isInfinite,
+        creditCardId = creditCardId,
+        invoiceMonth = invoiceMonth,
+        invoiceYear = invoiceYear,
+        installmentNumber = installmentNumber,
+        totalInstallments = totalInstallments,
         createdAt = LocalDateTime.now(),
         updatedAt = LocalDateTime.now()
     )
@@ -100,13 +124,17 @@ class TransactionEntity(
         newAmount: Int,
         newDate: LocalDate,
         newCategoryId: UUID?,
-        newStatus: TransactionStatus
+        newStatus: TransactionStatus,
+        newInvoiceMonth: Int? = this.invoiceMonth,
+        newInvoiceYear: Int? = this.invoiceYear
     ) {
         this.title = newTitle
         this.amount = newAmount
         this.date = newDate
         this.categoryId = newCategoryId
         this.status = newStatus
+        this.invoiceMonth = newInvoiceMonth
+        this.invoiceYear = newInvoiceYear
         this.updatedAt = LocalDateTime.now()
     }
 

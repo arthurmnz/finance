@@ -13,6 +13,9 @@ import com.finance.application.dto.group.UpdateMemberRoleRequest
 import com.finance.application.dto.account.AccountResponse
 import com.finance.application.dto.account.AccountGroupRequestResponse
 import com.finance.application.dto.account.GroupAccountResponse
+import com.finance.application.dto.credit_card.CreditCardGroupRequestResponse
+import com.finance.application.dto.credit_card.CreditCardResponse
+import com.finance.application.service.CreditCardService
 import com.finance.application.use_case.group.AcceptGroupInvitationUseCase
 import com.finance.application.use_case.group.CreateGroupUseCase
 import com.finance.application.use_case.group.DeleteGroupUseCase
@@ -70,7 +73,8 @@ class GroupController(
     private val listGroupAccountsUseCase: ListGroupAccountsUseCase,
     private val listPendingAccountGroupRequestsUseCase: ListPendingAccountGroupRequestsUseCase,
     private val acceptAccountGroupRequestUseCase: AcceptAccountGroupRequestUseCase,
-    private val rejectAccountGroupRequestUseCase: RejectAccountGroupRequestUseCase
+    private val rejectAccountGroupRequestUseCase: RejectAccountGroupRequestUseCase,
+    private val creditCardService: CreditCardService
 ) {
 
     // ── Grupo ──────────────────────────────────────────────────────────────
@@ -263,6 +267,48 @@ class GroupController(
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<Void> {
         rejectAccountGroupRequestUseCase.execute(requestId, id, authenticatedUser.id)
+        return ResponseEntity.noContent().build()
+    }
+
+    // ── Cartões de Crédito de Grupo ──────────────────────────────────────────────
+
+    @GetMapping("/{id}/credit-cards")
+    @Operation(summary = "Listar cartões de crédito do grupo")
+    fun listCreditCards(
+        @PathVariable id: UUID,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<List<CreditCardResponse>> {
+        return ResponseEntity.ok(creditCardService.listGroupCards(id, authenticatedUser.id))
+    }
+
+    @GetMapping("/{id}/credit-card-requests")
+    @Operation(summary = "Listar solicitações pendentes de cartões no grupo")
+    fun listCreditCardRequests(
+        @PathVariable id: UUID,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<List<CreditCardGroupRequestResponse>> {
+        return ResponseEntity.ok(creditCardService.listPendingGroupRequests(id, authenticatedUser.id))
+    }
+
+    @PostMapping("/{id}/credit-card-requests/{requestId}/accept")
+    @Operation(summary = "Aceitar solicitação de cartão no grupo")
+    fun acceptCreditCardRequest(
+        @PathVariable id: UUID,
+        @PathVariable requestId: UUID,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<Void> {
+        creditCardService.acceptGroupRequest(requestId, id, authenticatedUser.id)
+        return ResponseEntity.noContent().build()
+    }
+
+    @PostMapping("/{id}/credit-card-requests/{requestId}/reject")
+    @Operation(summary = "Recusar solicitação de cartão no grupo")
+    fun rejectCreditCardRequest(
+        @PathVariable id: UUID,
+        @PathVariable requestId: UUID,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<Void> {
+        creditCardService.rejectGroupRequest(requestId, id, authenticatedUser.id)
         return ResponseEntity.noContent().build()
     }
 }
