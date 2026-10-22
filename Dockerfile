@@ -17,5 +17,5 @@ WORKDIR /app
 COPY --from=build /workspace/app/build/libs/*-SNAPSHOT.jar /app/app.jar
 RUN chown -R appuser:appgroup /app
 USER appuser
-EXPOSE 8080
+EXPOSE 5000
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-Duser.timezone=America/Sao_Paulo", "-jar", "/app/app.jar"]
