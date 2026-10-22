@@ -6,6 +6,11 @@ import com.finance.domain.enum.TransactionType
 import java.time.LocalDate
 import java.util.UUID
 
+data class AccountSplitRequest(
+    val accountId: UUID,
+    val amount: Int
+)
+
 data class CreateTransactionRequest(
     val title: String,
     val amount: Int,
@@ -28,7 +33,12 @@ data class CreateTransactionRequest(
      * - "INSTALLMENT" (padrão): [amount] já é o valor de cada parcela.
      * - "TOTAL": [amount] é o valor total da compra e será dividido pelas parcelas.
      */
-    val installmentAmountMode: String? = "INSTALLMENT"
+    val installmentAmountMode: String? = "INSTALLMENT",
+    /**
+     * Lista opcional de rateio entre múltiplas contas (máximo de 10 contas distintas).
+     * Permitido apenas para EXPENSE e INCOME em contas bancárias.
+     */
+    val splits: List<AccountSplitRequest>? = null
 )
 
 data class UpdateTransactionRequest(
