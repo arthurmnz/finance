@@ -26,10 +26,11 @@ class ListCategoryTransactionsUseCase(
                 throw IllegalArgumentException("O mês deve estar entre 1 e 12.")
         }
 
+        val category = categoryRepository.findById(categoryId)
         if (authenticatedUserId != null) {
-            val category = categoryRepository.findById(categoryId) ?: throw CategoryNotFoundException()
-            val allowed = category.userId == authenticatedUserId ||
-                (category.groupId != null && groupMemberRepository.existsByGroupIdAndUserId(category.groupId!!, authenticatedUserId))
+            val targetCategory = category ?: throw CategoryNotFoundException()
+            val allowed = targetCategory.userId == authenticatedUserId ||
+                (targetCategory.groupId != null && groupMemberRepository.existsByGroupIdAndUserId(targetCategory.groupId!!, authenticatedUserId))
             if (!allowed) {
                 throw AccessDeniedException("Você não tem acesso às transações desta categoria.")
             }
@@ -43,6 +44,6 @@ class ListCategoryTransactionsUseCase(
         }
 
         val users = userRepository.findAll().associateBy { it.id }
-        return filteredTransactions.map { TransactionDtoMapper.toResponse(it, users[it.responsibleId]) }
+        return filteredTransactions.map { TransactionDtoMapper.toResponse(it, users[it.responsibleId], category) }
     }
 }

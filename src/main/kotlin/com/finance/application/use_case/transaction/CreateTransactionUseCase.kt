@@ -41,15 +41,18 @@ class CreateTransactionUseCase(
         if (request.recurrenceInterval <= 0 && request.isRecurring)
             throw InvalidTransactionException("O Intervalo não pode ser nulo ou negativo.")
 
-        if (request.categoryId != null) {
-            val category = categoryRepository.findById(request.categoryId)
+        val category = if (request.categoryId != null) {
+            val cat = categoryRepository.findById(request.categoryId)
                 ?: throw CategoryNotFoundException("Categoria não encontrada")
-            if (category.userId != null && category.userId != userId) {
+            if (cat.userId != null && cat.userId != userId) {
                 throw AccessDeniedException("Você não tem permissão para usar uma categoria pessoal de outro usuário.")
             }
-            if (category.groupId != null && !groupMemberRepository.existsByGroupIdAndUserId(category.groupId!!, userId)) {
+            if (cat.groupId != null && !groupMemberRepository.existsByGroupIdAndUserId(cat.groupId!!, userId)) {
                 throw AccessDeniedException("Você não tem permissão para usar categorias de um grupo do qual não é membro.")
             }
+            cat
+        } else {
+            null
         }
 
         val creditCard = request.creditCardId?.let { creditCardService.requireCardAccess(it, userId) }
@@ -195,6 +198,6 @@ class CreateTransactionUseCase(
 
         val users = userRepository.findAll().associateBy { it.id }
         val savedTransactions = transactionRepository.saveAll(transactionsToSave)
-        return savedTransactions.map { TransactionDtoMapper.toResponse(it, users[it.responsibleId]) }
+        return savedTransactions.map { TransactionDtoMapper.toResponse(it, users[it.responsibleId], category) }
     }
 }

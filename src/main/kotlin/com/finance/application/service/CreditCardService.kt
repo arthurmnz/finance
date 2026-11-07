@@ -25,6 +25,7 @@ import com.finance.domain.exception.AccountGroupRequestNotFoundException
 import com.finance.domain.exception.AccountNotFoundException
 import com.finance.domain.exception.CreditCardNotFoundException
 import com.finance.domain.repository.AccountRepository
+import com.finance.domain.repository.CategoryRepository
 import com.finance.domain.repository.CreditCardGroupRequestRepository
 import com.finance.domain.repository.CreditCardInvoiceRepository
 import com.finance.domain.repository.CreditCardRepository
@@ -46,7 +47,8 @@ class CreditCardService(
     private val transactionRepository: TransactionRepository,
     private val groupMemberRepository: GroupMemberRepository,
     private val groupService: GroupService,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val categoryRepository: CategoryRepository
 ) {
 
     @Transactional
@@ -316,6 +318,9 @@ class CreditCardService(
             CreditCardInvoiceResponse.ResponsibleSummary(user = toUserSummary(u), amount = sum)
         }.sortedByDescending { it.amount }
 
+        val invoiceCategoryIds = txs.mapNotNull { it.categoryId }.distinct()
+        val invoiceCategoryMap = invoiceCategoryIds.mapNotNull { categoryRepository.findById(it) }.associateBy { it.id }
+
         return CreditCardInvoiceResponse(
             creditCardId = card.id,
             month = month,
@@ -329,7 +334,7 @@ class CreditCardService(
             paidAmount = paid,
             remainingAmount = remaining,
             status = status,
-            transactions = txs.map { TransactionDtoMapper.toResponse(it, users[it.responsibleId]) },
+            transactions = txs.map { TransactionDtoMapper.toResponse(it, users[it.responsibleId], invoiceCategoryMap[it.categoryId]) },
             byResponsible = byResponsible
         )
     }

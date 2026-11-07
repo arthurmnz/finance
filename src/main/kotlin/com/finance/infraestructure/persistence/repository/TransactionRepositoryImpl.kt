@@ -83,4 +83,13 @@ class TransactionRepositoryImpl(
         return springDataTransactionRepository.findByAccountIdInAndDateBetween(accountIds, startDate, endDate)
             .map { mapper.toDomain(it) }
     }
+
+    override fun findByResponsibleIdAndDateBetween(
+        responsibleId: UUID,
+        startDate: LocalDate,
+        endDate: LocalDate
+    ): List<TransactionEntity> {
+        return springDataTransactionRepository.findByResponsibleIdAndDateBetween(responsibleId, startDate, endDate)
+            .map { mapper.toDomain(it) }
+    }
 }

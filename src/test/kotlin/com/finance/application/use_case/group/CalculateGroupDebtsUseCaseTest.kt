@@ -9,6 +9,7 @@ import com.finance.domain.entity.UserEntity
 import com.finance.domain.enum.GroupRole
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
+import com.finance.domain.repository.CategoryRepository
 import com.finance.domain.repository.CreditCardRepository
 import com.finance.domain.repository.DebtSettlementRepository
 import com.finance.domain.repository.GroupMemberRepository
@@ -35,6 +36,7 @@ class CalculateGroupDebtsUseCaseTest {
     private lateinit var transactionRepository: TransactionRepository
     private lateinit var debtSettlementRepository: DebtSettlementRepository
     private lateinit var userRepository: UserRepository
+    private lateinit var categoryRepository: CategoryRepository
     private lateinit var useCase: CalculateGroupDebtsUseCase
 
     @BeforeEach
@@ -45,6 +47,7 @@ class CalculateGroupDebtsUseCaseTest {
         transactionRepository = mock(TransactionRepository::class.java)
         debtSettlementRepository = mock(DebtSettlementRepository::class.java)
         userRepository = mock(UserRepository::class.java)
+        categoryRepository = mock(CategoryRepository::class.java)
 
         useCase = CalculateGroupDebtsUseCase(
             groupRepository = groupRepository,
@@ -52,7 +55,8 @@ class CalculateGroupDebtsUseCaseTest {
             creditCardRepository = creditCardRepository,
             transactionRepository = transactionRepository,
             debtSettlementRepository = debtSettlementRepository,
-            userRepository = userRepository
+            userRepository = userRepository,
+            categoryRepository = categoryRepository
         )
     }
 
@@ -149,5 +153,66 @@ class CalculateGroupDebtsUseCaseTest {
         assertEquals(userA.id, balanceDez.debtor.id)
         assertEquals(userB.id, balanceDez.creditor.id)
         assertEquals(5000, balanceDez.netAmount)
+    }
+
+    @Test
+    fun `should assign credit card purchase debt to transaction date month instead of invoice month`() {
+        val userA = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val userB = UserEntity(Name("Maria"), Name("Silva"), Email("maria@finance.com"), PasswordHash("hash"))
+        val group = GroupEntity(id = UUID.randomUUID(), name = "Família")
+
+        `when`(groupRepository.findById(group.id)).thenReturn(group)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(group.id, userA.id)).thenReturn(true)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(group.id, userB.id)).thenReturn(true)
+        `when`(userRepository.findAll()).thenReturn(listOf(userA, userB))
+
+        val cardA = CreditCardEntity(
+            id = UUID.randomUUID(),
+            ownerId = userA.id,
+            accountId = UUID.randomUUID(),
+            name = "Cartão Arthur",
+            limitAmount = 500000,
+            closingDay = 25,
+            dueDay = 5,
+            groupId = group.id
+        )
+        `when`(creditCardRepository.findAllByGroupId(group.id)).thenReturn(listOf(cardA))
+
+        // Usuário B fez compra em outubro (2026-10-28), cuja fatura vence em novembro (invoiceMonth = 11, invoiceYear = 2026)
+        val txOct = TransactionEntity(
+            title = "Uber",
+            amount = 3500,
+            date = LocalDate.of(2026, 10, 28),
+            responsibleId = userB.id,
+            accountId = cardA.accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            creditCardId = cardA.id,
+            invoiceMonth = 11,
+            invoiceYear = 2026
+        )
+
+        `when`(transactionRepository.findByCreditCardId(cardA.id)).thenReturn(listOf(txOct))
+        `when`(debtSettlementRepository.findByGroupId(group.id)).thenReturn(emptyList())
+
+        val response = useCase.execute(group.id, userB.id)
+
+        // Arthur tem a receber 3500 de Maria, e Maria deve 3500 a Arthur
+        assertEquals(3500, response.totalOwedByMe)
+        assertEquals(0, response.totalReceivableByMe)
+
+        // A dívida deve estar no mês de OUTUBRO (mês 10), competência da data da compra, e não de novembro
+        val monthOct = response.monthlyBalances.find { it.month == 10 && it.year == 2026 }
+        assertNotNull(monthOct)
+        val balanceOct = monthOct.userBalances[0]
+        assertEquals(userB.id, balanceOct.debtor.id)
+        assertEquals(userA.id, balanceOct.creditor.id)
+        assertEquals(3500, balanceOct.netAmount)
+
+        // Em novembro não deve haver saldo de dívida
+        val monthNov = response.monthlyBalances.find { it.month == 11 && it.year == 2026 }
+        assertEquals(0, monthNov?.userBalances?.size ?: 0)
     }
 }

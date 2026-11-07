@@ -1,5 +1,6 @@
 package com.finance.application.dto.transaction
 
+import com.finance.application.dto.category.CategorySummaryResponse
 import com.finance.application.dto.group.GroupUserSummary
 import com.finance.domain.enum.RecurrenceFrequency
 import com.finance.domain.enum.TransactionStatus
@@ -19,6 +20,7 @@ data class TransactionResponse(
     val type: TransactionType,
     val destinationAccountId: UUID?,
     val categoryId: UUID?,
+    val category: CategorySummaryResponse? = null,
     val status: TransactionStatus,
     val recurrenceGroupId: UUID?,
     val recurrenceFrequency: RecurrenceFrequency?,

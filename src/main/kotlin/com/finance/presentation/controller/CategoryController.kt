@@ -81,8 +81,7 @@ class CategoryController(
         @PathVariable groupId: UUID,
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<List<CategoryResponse>> {
-        // Detailed permission check can be added inside Use Case
-        val response = listGroupCategoriesUseCase.execute(groupId)
+        val response = listGroupCategoriesUseCase.execute(groupId, authenticatedUser.id)
         return ResponseEntity.ok(response)
     }
 }

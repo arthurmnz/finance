@@ -5,6 +5,7 @@ import com.finance.application.mapper.TransactionDtoMapper
 import com.finance.domain.exception.AccessDeniedException
 import com.finance.domain.exception.AccountNotFoundException
 import com.finance.domain.repository.AccountRepository
+import com.finance.domain.repository.CategoryRepository
 import com.finance.domain.repository.GroupMemberRepository
 import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.repository.UserRepository
@@ -17,7 +18,8 @@ class ListAccountTransactionsUseCase(
     private val transactionRepository: TransactionRepository,
     private val accountRepository: AccountRepository,
     private val groupMemberRepository: GroupMemberRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val categoryRepository: CategoryRepository
 ) {
     @Transactional(readOnly = true)
     fun execute(accountId: UUID, month: Int? = null, year: Int? = null, authenticatedUserId: UUID? = null): List<TransactionResponse> {
@@ -43,6 +45,9 @@ class ListAccountTransactionsUseCase(
         }
 
         val users = userRepository.findAll().associateBy { it.id }
-        return filteredTransactions.map { TransactionDtoMapper.toResponse(it, users[it.responsibleId]) }
+        val categoryIds = filteredTransactions.mapNotNull { it.categoryId }.distinct()
+        val categoryMap = categoryIds.mapNotNull { categoryRepository.findById(it) }.associateBy { it.id }
+
+        return filteredTransactions.map { TransactionDtoMapper.toResponse(it, users[it.responsibleId], categoryMap[it.categoryId]) }
     }
 }

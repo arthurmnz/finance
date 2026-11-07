@@ -8,6 +8,7 @@ import com.finance.domain.exception.AccountNotFoundException
 import com.finance.domain.exception.TransactionNotFoundException
 import com.finance.domain.exception.UnauthorizedException
 import com.finance.domain.repository.AccountRepository
+import com.finance.domain.repository.CategoryRepository
 import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.repository.UserRepository
 import org.springframework.stereotype.Service
@@ -18,7 +19,8 @@ import java.util.UUID
 class ToggleTransactionStatusUseCase(
     private val transactionRepository: TransactionRepository,
     private val accountRepository: AccountRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val categoryRepository: CategoryRepository
 ) {
     @Transactional
     fun execute(userId: UUID, transactionId: UUID): TransactionResponse {
@@ -65,6 +67,11 @@ class ToggleTransactionStatusUseCase(
         )
 
         val updatedTransaction = transactionRepository.save(transaction)
-        return TransactionDtoMapper.toResponse(updatedTransaction, userRepository.findById(transaction.responsibleId))
+        val category = updatedTransaction.categoryId?.let { categoryRepository.findById(it) }
+        return TransactionDtoMapper.toResponse(
+            updatedTransaction,
+            userRepository.findById(transaction.responsibleId),
+            category
+        )
     }
 }

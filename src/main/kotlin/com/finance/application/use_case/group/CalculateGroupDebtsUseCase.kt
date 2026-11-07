@@ -8,10 +8,12 @@ import com.finance.application.dto.group.MemberDebtDetailResponse
 import com.finance.application.dto.group.PairDebtBalanceResponse
 import com.finance.application.dto.transaction.TransactionResponse
 import com.finance.application.mapper.TransactionDtoMapper
+import com.finance.domain.entity.CategoryEntity
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccessDeniedException
 import com.finance.domain.exception.GroupNotFoundException
+import com.finance.domain.repository.CategoryRepository
 import com.finance.domain.repository.CreditCardRepository
 import com.finance.domain.repository.DebtSettlementRepository
 import com.finance.domain.repository.GroupMemberRepository
@@ -30,7 +32,8 @@ class CalculateGroupDebtsUseCase(
     private val creditCardRepository: CreditCardRepository,
     private val transactionRepository: TransactionRepository,
     private val debtSettlementRepository: DebtSettlementRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val categoryRepository: CategoryRepository
 ) {
     private data class CardPurchaseItem(
         val debtorId: UUID,
@@ -66,18 +69,19 @@ class CalculateGroupDebtsUseCase(
         val allYms = mutableSetOf<YearMonth>()
         allYms.add(YearMonth.now())
 
+        val categoryCache = mutableMapOf<UUID, CategoryEntity?>()
+        fun getCategory(catId: UUID?): CategoryEntity? = catId?.let {
+            categoryCache.computeIfAbsent(it) { id -> categoryRepository.findById(id) }
+        }
+
         for (card in cards) {
             val txs = transactionRepository.findByCreditCardId(card.id)
             for (tx in txs) {
                 if (tx.responsibleId != card.ownerId) {
-                    val ym = if (tx.invoiceMonth != null && tx.invoiceYear != null) {
-                        YearMonth.of(tx.invoiceYear!!, tx.invoiceMonth!!)
-                    } else {
-                        card.defaultInvoiceMonthYear(tx.date)
-                    }
+                    val ym = YearMonth.from(tx.date)
                     allYms.add(ym)
                     val signed = if (tx.type == TransactionType.INCOME) -tx.amount else tx.amount
-                    val resp = TransactionDtoMapper.toResponse(tx, users[tx.responsibleId])
+                    val resp = TransactionDtoMapper.toResponse(tx, users[tx.responsibleId], getCategory(tx.categoryId))
                     purchases.add(
                         CardPurchaseItem(
                             debtorId = tx.responsibleId,

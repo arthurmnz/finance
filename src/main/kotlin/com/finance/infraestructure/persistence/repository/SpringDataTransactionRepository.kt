@@ -27,4 +27,5 @@ interface SpringDataTransactionRepository : JpaRepository<TransactionJpaEntity, 
     fun findFutureTransactionsByGroupId(groupId: UUID, date: LocalDate): List<TransactionJpaEntity>
 
     fun findByAccountIdInAndDateBetween(accountIds: List<UUID>, startDate: LocalDate, endDate: LocalDate): List<TransactionJpaEntity>
+    fun findByResponsibleIdAndDateBetween(responsibleId: UUID, startDate: LocalDate, endDate: LocalDate): List<TransactionJpaEntity>
 }

@@ -151,8 +151,10 @@ class UpdateTransactionUseCase(
         }
 
         val responsible = userRepository.findById(userId)
+        val finalCategoryId = request.categoryId ?: transaction.categoryId
+        val targetCategory = finalCategoryId?.let { categoryRepository.findById(it) }
         val savedTransactions = transactionRepository.saveAll(transactionsToUpdate)
-        val responseList = savedTransactions.map { TransactionDtoMapper.toResponse(it, responsible) }.toMutableList()
+        val responseList = savedTransactions.map { TransactionDtoMapper.toResponse(it, responsible, targetCategory) }.toMutableList()
 
         if (shouldRegenerateFutures && request.isRecurring == true) {
             var currentDate = request.date
@@ -184,7 +186,7 @@ class UpdateTransactionUseCase(
             }
             if (newlyGenerated.isNotEmpty()) {
                 val savedNewFutures = transactionRepository.saveAll(newlyGenerated)
-                responseList.addAll(savedNewFutures.map { TransactionDtoMapper.toResponse(it, responsible) })
+                responseList.addAll(savedNewFutures.map { TransactionDtoMapper.toResponse(it, responsible, targetCategory) })
             }
         }
 

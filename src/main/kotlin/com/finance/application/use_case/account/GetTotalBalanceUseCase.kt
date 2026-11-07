@@ -38,23 +38,30 @@ class GetTotalBalanceUseCase(
         val total = filteredAccounts.sumOf { it.balance }
 
         val accountIds = filteredAccounts.map { it.id }
-        
-        var monthlyIncome = 0
-        var monthlyExpense = 0
 
-        if (accountIds.isNotEmpty()) {
-            val now = LocalDate.now()
-            val targetYear = year ?: now.year
-            val targetMonth = month ?: now.monthValue
-            
-            val startDate = LocalDate.of(targetYear, targetMonth, 1)
-            val endDate = startDate.withDayOfMonth(startDate.lengthOfMonth())
+        val now = LocalDate.now()
+        val targetYear = year ?: now.year
+        val targetMonth = month ?: now.monthValue
 
-            val transactions = transactionRepository.findByAccountIdInAndDateBetween(accountIds, startDate, endDate)
-            
-            monthlyIncome = transactions.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
-            monthlyExpense = transactions.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount }
+        val startDate = LocalDate.of(targetYear, targetMonth, 1)
+        val endDate = startDate.withDayOfMonth(startDate.lengthOfMonth())
+
+        val accountTransactions = if (accountIds.isNotEmpty()) {
+            transactionRepository.findByAccountIdInAndDateBetween(accountIds, startDate, endDate)
+                .filter { it.responsibleId == authenticatedUserId }
+        } else {
+            emptyList()
         }
+
+        val responsibleTransactions = transactionRepository.findByResponsibleIdAndDateBetween(authenticatedUserId, startDate, endDate)
+        val cardTransactions = responsibleTransactions.filter { tx ->
+            tx.creditCardId != null && (ignoreAccountIds == null || tx.accountId !in ignoreAccountIds)
+        }
+
+        val allUserTransactions = (accountTransactions + cardTransactions).distinctBy { it.id }
+
+        val monthlyIncome = allUserTransactions.filter { it.type == TransactionType.INCOME }.sumOf { it.amount }
+        val monthlyExpense = allUserTransactions.filter { it.type == TransactionType.EXPENSE }.sumOf { it.amount }
 
         return TotalBalanceResponse(
             total = total,
