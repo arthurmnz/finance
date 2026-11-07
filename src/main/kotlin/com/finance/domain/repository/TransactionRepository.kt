@@ -11,6 +11,7 @@ interface TransactionRepository {
     fun findByCategoryId(categoryId: UUID): List<TransactionEntity>
     fun findByDestinationAccountId(destinationAccountId: UUID): List<TransactionEntity>
     fun findByCreditCardId(creditCardId: UUID): List<TransactionEntity>
+    fun findByResponsibleId(responsibleId: UUID): List<TransactionEntity>
     fun delete(id: UUID)
     fun deleteAll(ids: List<UUID>)
     fun saveAll(transactions: List<TransactionEntity>): List<TransactionEntity>

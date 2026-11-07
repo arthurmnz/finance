@@ -12,8 +12,10 @@ import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccessDeniedException
 import com.finance.domain.exception.AccountNotFoundException
+import com.finance.domain.exception.CategoryNotFoundException
 import com.finance.domain.exception.InvalidTransactionException
 import com.finance.domain.repository.AccountRepository
+import com.finance.domain.repository.CategoryRepository
 import com.finance.domain.repository.GroupMemberRepository
 import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.repository.UserRepository
@@ -28,7 +30,8 @@ class CreateTransactionUseCase(
     private val accountRepository: AccountRepository,
     private val creditCardService: CreditCardService,
     private val userRepository: UserRepository,
-    private val groupMemberRepository: GroupMemberRepository
+    private val groupMemberRepository: GroupMemberRepository,
+    private val categoryRepository: CategoryRepository
 ) {
     @Transactional
     fun execute(userId: UUID, request: CreateTransactionRequest): List<TransactionResponse> {
@@ -37,6 +40,17 @@ class CreateTransactionUseCase(
 
         if (request.recurrenceInterval <= 0 && request.isRecurring)
             throw InvalidTransactionException("O Intervalo não pode ser nulo ou negativo.")
+
+        if (request.categoryId != null) {
+            val category = categoryRepository.findById(request.categoryId)
+                ?: throw CategoryNotFoundException("Categoria não encontrada")
+            if (category.userId != null && category.userId != userId) {
+                throw AccessDeniedException("Você não tem permissão para usar uma categoria pessoal de outro usuário.")
+            }
+            if (category.groupId != null && !groupMemberRepository.existsByGroupIdAndUserId(category.groupId!!, userId)) {
+                throw AccessDeniedException("Você não tem permissão para usar categorias de um grupo do qual não é membro.")
+            }
+        }
 
         val creditCard = request.creditCardId?.let { creditCardService.requireCardAccess(it, userId) }
 

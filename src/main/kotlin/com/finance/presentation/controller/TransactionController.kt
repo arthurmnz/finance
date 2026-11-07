@@ -7,6 +7,7 @@ import com.finance.application.use_case.transaction.CreateTransactionUseCase
 import com.finance.application.use_case.transaction.DeleteTransactionUseCase
 import com.finance.application.use_case.transaction.ListAccountTransactionsUseCase
 import com.finance.application.use_case.transaction.ListCategoryTransactionsUseCase
+import com.finance.application.use_case.transaction.ListResponsibleTransactionsUseCase
 import com.finance.application.use_case.transaction.UpdateTransactionUseCase
 import com.finance.application.use_case.transaction.ToggleTransactionStatusUseCase
 import com.finance.domain.entity.UserEntity
@@ -35,7 +36,8 @@ class TransactionController(
     private val deleteTransactionUseCase: DeleteTransactionUseCase,
     private val listAccountTransactionsUseCase: ListAccountTransactionsUseCase,
     private val listCategoryTransactionsUseCase: ListCategoryTransactionsUseCase,
-    private val toggleTransactionStatusUseCase: ToggleTransactionStatusUseCase
+    private val toggleTransactionStatusUseCase: ToggleTransactionStatusUseCase,
+    private val listResponsibleTransactionsUseCase: ListResponsibleTransactionsUseCase
 ) {
 
     @PostMapping
@@ -91,6 +93,17 @@ class TransactionController(
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<List<TransactionResponse>> {
         val response = listCategoryTransactionsUseCase.execute(categoryId, month, year, authenticatedUser.id)
+        return ResponseEntity.ok(response)
+    }
+
+    @GetMapping("/responsible/me")
+    @Operation(summary = "Listar transações sob responsabilidade do usuário autenticado")
+    fun listResponsibleTransactions(
+        @RequestParam(required = false) month: Int?,
+        @RequestParam(required = false) year: Int?,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<List<TransactionResponse>> {
+        val response = listResponsibleTransactionsUseCase.execute(authenticatedUser.id, month, year)
         return ResponseEntity.ok(response)
     }
 

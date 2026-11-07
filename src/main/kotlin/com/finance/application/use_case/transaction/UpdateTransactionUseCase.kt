@@ -7,10 +7,14 @@ import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.enum.RecurrenceFrequency
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
+import com.finance.domain.exception.AccessDeniedException
 import com.finance.domain.exception.AccountNotFoundException
+import com.finance.domain.exception.CategoryNotFoundException
 import com.finance.domain.exception.TransactionNotFoundException
 import com.finance.domain.exception.UnauthorizedException
 import com.finance.domain.repository.AccountRepository
+import com.finance.domain.repository.CategoryRepository
+import com.finance.domain.repository.GroupMemberRepository
 import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.repository.UserRepository
 import org.springframework.stereotype.Service
@@ -22,7 +26,9 @@ import java.util.UUID
 class UpdateTransactionUseCase(
     private val transactionRepository: TransactionRepository,
     private val accountRepository: AccountRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val categoryRepository: CategoryRepository,
+    private val groupMemberRepository: GroupMemberRepository
 ) {
     @Transactional
     fun execute(userId: UUID, transactionId: UUID, request: UpdateTransactionRequest): TransactionResponse {
@@ -31,6 +37,17 @@ class UpdateTransactionUseCase(
 
         if (transaction.responsibleId != userId) {
             throw UnauthorizedException("You can only edit transactions you created")
+        }
+
+        if (request.categoryId != null) {
+            val category = categoryRepository.findById(request.categoryId)
+                ?: throw CategoryNotFoundException("Categoria não encontrada")
+            if (category.userId != null && category.userId != userId) {
+                throw AccessDeniedException("Você não tem permissão para usar uma categoria pessoal de outro usuário.")
+            }
+            if (category.groupId != null && !groupMemberRepository.existsByGroupIdAndUserId(category.groupId!!, userId)) {
+                throw AccessDeniedException("Você não tem permissão para usar categorias de um grupo do qual não é membro.")
+            }
         }
 
         val transactionsToUpdate = mutableListOf(transaction)

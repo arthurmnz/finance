@@ -1,13 +1,17 @@
 package com.finance.presentation.controller
 
 import com.finance.application.dto.group.CreateGroupRequest
+import com.finance.application.dto.group.DebtSettlementResponse
+import com.finance.application.dto.group.GroupDebtsResponse
 import com.finance.application.dto.group.GroupInvitationResponse
 import com.finance.application.dto.group.GroupMemberResponse
 import com.finance.application.dto.group.GroupMembersResponse
 import com.finance.application.dto.group.GroupResponse
 import com.finance.application.dto.group.GroupSummaryResponse
+import com.finance.application.dto.group.GroupUsedCategoryResponse
 import com.finance.application.dto.group.InviteMemberRequest
 import com.finance.application.dto.group.RenameGroupRequest
+import com.finance.application.dto.group.SettleDebtRequest
 import com.finance.application.dto.group.TransferOwnershipRequest
 import com.finance.application.dto.group.UpdateMemberRoleRequest
 import com.finance.application.dto.account.AccountResponse
@@ -17,9 +21,11 @@ import com.finance.application.dto.credit_card.CreditCardGroupRequestResponse
 import com.finance.application.dto.credit_card.CreditCardResponse
 import com.finance.application.service.CreditCardService
 import com.finance.application.use_case.group.AcceptGroupInvitationUseCase
+import com.finance.application.use_case.group.CalculateGroupDebtsUseCase
 import com.finance.application.use_case.group.CreateGroupUseCase
 import com.finance.application.use_case.group.DeleteGroupUseCase
 import com.finance.application.use_case.group.GetGroupUseCase
+import com.finance.application.use_case.group.GetGroupUsedCategoriesUseCase
 import com.finance.application.use_case.group.InviteMemberUseCase
 import com.finance.application.use_case.group.LeaveGroupUseCase
 import com.finance.application.use_case.group.ListGroupMembersUseCase
@@ -28,6 +34,7 @@ import com.finance.application.use_case.group.ListMyGroupsUseCase
 import com.finance.application.use_case.group.RejectGroupInvitationUseCase
 import com.finance.application.use_case.group.RemoveMemberUseCase
 import com.finance.application.use_case.group.RenameGroupUseCase
+import com.finance.application.use_case.group.SettleGroupDebtUseCase
 import com.finance.application.use_case.group.TransferOwnershipUseCase
 import com.finance.application.use_case.group.UpdateMemberRoleUseCase
 import com.finance.application.use_case.account.ListGroupAccountsUseCase
@@ -74,7 +81,10 @@ class GroupController(
     private val listPendingAccountGroupRequestsUseCase: ListPendingAccountGroupRequestsUseCase,
     private val acceptAccountGroupRequestUseCase: AcceptAccountGroupRequestUseCase,
     private val rejectAccountGroupRequestUseCase: RejectAccountGroupRequestUseCase,
-    private val creditCardService: CreditCardService
+    private val creditCardService: CreditCardService,
+    private val getGroupUsedCategoriesUseCase: GetGroupUsedCategoriesUseCase,
+    private val calculateGroupDebtsUseCase: CalculateGroupDebtsUseCase,
+    private val settleGroupDebtUseCase: SettleGroupDebtUseCase
 ) {
 
     // ── Grupo ──────────────────────────────────────────────────────────────
@@ -310,5 +320,40 @@ class GroupController(
     ): ResponseEntity<Void> {
         creditCardService.rejectGroupRequest(requestId, id, authenticatedUser.id)
         return ResponseEntity.noContent().build()
+    }
+
+    // ── Categorias Utilizadas no Grupo ──────────────────────────────────────────
+
+    @GetMapping("/{id}/used-categories")
+    @Operation(summary = "Listar categorias utilizadas nas transações do grupo")
+    fun listUsedCategories(
+        @PathVariable id: UUID,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<List<GroupUsedCategoryResponse>> {
+        val response = getGroupUsedCategoriesUseCase.execute(id, authenticatedUser.id)
+        return ResponseEntity.ok(response)
+    }
+
+    // ── Dívidas e Acertos de Membros ────────────────────────────────────────────
+
+    @GetMapping("/{id}/debts")
+    @Operation(summary = "Calcular e listar dívidas e saldos do grupo por mês")
+    fun getGroupDebts(
+        @PathVariable id: UUID,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<GroupDebtsResponse> {
+        val response = calculateGroupDebtsUseCase.execute(id, authenticatedUser.id)
+        return ResponseEntity.ok(response)
+    }
+
+    @PostMapping("/{id}/debts/settle")
+    @Operation(summary = "Realizar acerto/quitação de dívida de cartão compartilhado")
+    fun settleDebt(
+        @PathVariable id: UUID,
+        @RequestBody request: SettleDebtRequest,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<DebtSettlementResponse> {
+        val response = settleGroupDebtUseCase.execute(id, authenticatedUser.id, request)
+        return ResponseEntity.status(HttpStatus.CREATED).body(response)
     }
 }

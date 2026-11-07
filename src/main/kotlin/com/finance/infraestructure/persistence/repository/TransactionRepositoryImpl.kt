@@ -46,6 +46,11 @@ class TransactionRepositoryImpl(
             .map { mapper.toDomain(it) }
     }
 
+    override fun findByResponsibleId(responsibleId: UUID): List<TransactionEntity> {
+        return springDataTransactionRepository.findByResponsibleId(responsibleId)
+            .map { mapper.toDomain(it) }
+    }
+
     override fun delete(id: UUID) {
         springDataTransactionRepository.deleteById(id)
     }

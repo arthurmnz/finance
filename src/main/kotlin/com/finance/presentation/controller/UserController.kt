@@ -1,10 +1,12 @@
 package com.finance.presentation.controller
 
+import com.finance.application.dto.group.UserDebtsSummaryResponse
 import com.finance.application.dto.user.UpdateUserRequest
 import com.finance.application.dto.user.UserResponse
 import com.finance.application.mapper.UserDtoMapper
 import com.finance.application.service.UserService
 import com.finance.application.use_case.user.DeleteUserUseCase
+import com.finance.application.use_case.user.GetUserDebtsSummaryUseCase
 import com.finance.application.use_case.user.UpdateUserUseCase
 import com.finance.domain.entity.UserEntity
 import io.swagger.v3.oas.annotations.Operation
@@ -28,6 +30,7 @@ class UserController(
     private val deleteUserUseCase: DeleteUserUseCase,
     private val userService: UserService,
     private val userDtoMapper: UserDtoMapper,
+    private val getUserDebtsSummaryUseCase: GetUserDebtsSummaryUseCase
 ) {
     @GetMapping("/{id}")
     @Operation(summary = "Buscar usuário por ID")
@@ -42,6 +45,15 @@ class UserController(
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<UserResponse> {
         return ResponseEntity.ok(userDtoMapper.toUserResponse(authenticatedUser))
+    }
+
+    @GetMapping("/me/debts-summary")
+    @Operation(summary = "Resumo geral de dívidas e valores a receber do usuário")
+    fun getDebtsSummary(
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<UserDebtsSummaryResponse> {
+        val summary = getUserDebtsSummaryUseCase.execute(authenticatedUser.id)
+        return ResponseEntity.ok(summary)
     }
 
     @PutMapping("/{id}")

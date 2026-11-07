@@ -4,6 +4,7 @@ import com.finance.application.mapper.UserDtoMapper
 import com.finance.application.service.InMemoryUserRepository
 import com.finance.application.service.UserService
 import com.finance.application.use_case.user.DeleteUserUseCase
+import com.finance.application.use_case.user.GetUserDebtsSummaryUseCase
 import com.finance.application.use_case.user.UpdateUserUseCase
 import com.finance.domain.entity.UserEntity
 import com.finance.domain.value_object.Email
@@ -54,11 +55,14 @@ class UserControllerTest {
             accountGroupRequestRepository = mock(AccountGroupRequestRepository::class.java),
         )
 
+        val getUserDebtsSummaryUseCase = mock(GetUserDebtsSummaryUseCase::class.java)
+
         val userController = UserController(
             updateUserUseCase = updateUserUseCase,
             deleteUserUseCase = deleteUserUseCase,
             userService = userService,
-            userDtoMapper = userDtoMapper
+            userDtoMapper = userDtoMapper,
+            getUserDebtsSummaryUseCase = getUserDebtsSummaryUseCase
         )
 
         mockMvc = MockMvcBuilders
