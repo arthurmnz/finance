@@ -20,6 +20,7 @@ import com.finance.domain.exception.UserNotFoundException
 import com.finance.domain.exception.CategoryNotFoundException
 import com.finance.domain.exception.TransactionNotFoundException
 import com.finance.domain.exception.InvalidTransactionException
+import com.finance.domain.exception.RateLimitExceededException
 import com.finance.presentation.dto.ErrorResponse
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
@@ -233,6 +234,16 @@ class GlobalExceptionHandler {
             message = ex.message ?: "Transação inválida."
         )
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(error)
+    }
+
+    @ExceptionHandler(RateLimitExceededException::class)
+    fun handleRateLimitExceeded(ex: RateLimitExceededException): ResponseEntity<ErrorResponse> {
+        val error = ErrorResponse(
+            status = HttpStatus.TOO_MANY_REQUESTS.value(),
+            error = HttpStatus.TOO_MANY_REQUESTS.reasonPhrase,
+            message = ex.message ?: "Muitas requisições. Tente novamente mais tarde."
+        )
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(error)
     }
 
     @ExceptionHandler(IllegalArgumentException::class, HttpMessageNotReadableException::class)

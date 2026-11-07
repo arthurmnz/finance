@@ -9,10 +9,16 @@ import com.finance.domain.entity.UserEntity
 import com.finance.domain.value_object.Email
 import com.finance.domain.value_object.Name
 import com.finance.domain.value_object.PasswordHash
+import com.finance.domain.repository.AccountGroupRequestRepository
+import com.finance.domain.repository.AccountRepository
+import com.finance.domain.repository.GroupInvitationRepository
+import com.finance.domain.repository.GroupMemberRepository
+import com.finance.domain.repository.GroupRepository
 import com.finance.presentation.exception.GlobalExceptionHandler
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.mockito.Mockito.mock
 import org.springframework.http.MediaType
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.authority.SimpleGrantedAuthority
@@ -38,7 +44,15 @@ class UserControllerTest {
         userService = UserService(userRepository)
         val userDtoMapper = UserDtoMapper()
         val updateUserUseCase = UpdateUserUseCase(userRepository, userService, userDtoMapper)
-        val deleteUserUseCase = DeleteUserUseCase(userRepository, userService)
+        val deleteUserUseCase = DeleteUserUseCase(
+            userRepository = userRepository,
+            userService = userService,
+            groupMemberRepository = mock(GroupMemberRepository::class.java),
+            groupRepository = mock(GroupRepository::class.java),
+            groupInvitationRepository = mock(GroupInvitationRepository::class.java),
+            accountRepository = mock(AccountRepository::class.java),
+            accountGroupRequestRepository = mock(AccountGroupRequestRepository::class.java),
+        )
 
         val userController = UserController(
             updateUserUseCase = updateUserUseCase,
@@ -107,11 +121,13 @@ class UserControllerTest {
     }
 
     @Test
-    fun `should list all users with 200 OK`() {
-        mockMvc.get("/api/v1/users")
+    fun `should get authenticated user profile with 200 OK`() {
+        authenticateAs(existingUser)
+        mockMvc.get("/api/v1/users/me")
             .andExpect {
                 status { isOk() }
-                jsonPath("$[0].id") { exists() }
+                jsonPath("$.id") { value(existingUser.id.toString()) }
+                jsonPath("$.email") { value(existingUser.email.value) }
             }
     }
 

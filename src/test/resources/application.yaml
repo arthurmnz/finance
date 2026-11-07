@@ -19,3 +19,11 @@ spring:
 
 jwt:
   secret: test_secret_key_for_unit_and_integration_tests_minimum_256_bits_long
+
+resend:
+  api-key: ""
+  from-email: onboarding@resend.dev
+
+frontend:
+  url: http://localhost:5173
+

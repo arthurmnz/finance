@@ -1,19 +1,26 @@
 package com.finance.presentation.controller
 
 import com.finance.application.dto.auth.AuthResponse
+import com.finance.application.dto.auth.ForgotPasswordRequest
 import com.finance.application.dto.auth.LoginRequest
+import com.finance.application.dto.auth.MessageResponse
 import com.finance.application.dto.auth.RegisterUserRequest
 import com.finance.application.dto.auth.RegisterUserResponse
+import com.finance.application.dto.auth.ResetPasswordRequest
 import com.finance.application.port.TokenProviderPort
+import com.finance.application.use_case.auth.ForgotPasswordUseCase
 import com.finance.application.use_case.auth.LoginUseCase
 import com.finance.application.use_case.auth.LogoutUseCase
 import com.finance.application.use_case.auth.RefreshTokenUseCase
 import com.finance.application.use_case.auth.RegisterUserUseCase
+import com.finance.application.use_case.auth.ResetPasswordUseCase
+import com.finance.infraestructure.security.RateLimiterService
 import com.finance.presentation.util.AuthCookieUtil
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.security.SecurityRequirements
 import io.swagger.v3.oas.annotations.tags.Tag
+import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
@@ -31,6 +38,9 @@ class AuthController(
     private val loginUseCase: LoginUseCase,
     private val refreshTokenUseCase: RefreshTokenUseCase,
     private val logoutUseCase: LogoutUseCase,
+    private val forgotPasswordUseCase: ForgotPasswordUseCase,
+    private val resetPasswordUseCase: ResetPasswordUseCase,
+    private val rateLimiterService: RateLimiterService,
     private val tokenProvider: TokenProviderPort,
     private val authCookieUtil: AuthCookieUtil,
 ) {
@@ -89,5 +99,31 @@ class AuthController(
         return ResponseEntity.noContent()
             .header(HttpHeaders.SET_COOKIE, clearCookie.toString())
             .build()
+    }
+
+    @PostMapping("/forgot-password")
+    @SecurityRequirements
+    @Operation(summary = "Solicitar link de recuperação de senha por e-mail")
+    fun forgotPassword(
+        @RequestBody request: ForgotPasswordRequest,
+        servletRequest: HttpServletRequest,
+    ): ResponseEntity<MessageResponse> {
+        val clientIp = rateLimiterService.resolveClientIp(servletRequest)
+        rateLimiterService.checkRateLimit(action = "forgot-password", clientIp = clientIp)
+        val response = forgotPasswordUseCase.execute(request)
+        return ResponseEntity.ok(response)
+    }
+
+    @PostMapping("/reset-password")
+    @SecurityRequirements
+    @Operation(summary = "Redefinir senha com token recebido por e-mail")
+    fun resetPassword(
+        @RequestBody request: ResetPasswordRequest,
+        servletRequest: HttpServletRequest,
+    ): ResponseEntity<MessageResponse> {
+        val clientIp = rateLimiterService.resolveClientIp(servletRequest)
+        rateLimiterService.checkRateLimit(action = "reset-password", clientIp = clientIp)
+        val response = resetPasswordUseCase.execute(request)
+        return ResponseEntity.ok(response)
     }
 }
