@@ -6,6 +6,7 @@ import com.finance.application.dto.transaction.UpdateTransactionRequest
 import com.finance.application.use_case.transaction.CreateTransactionUseCase
 import com.finance.application.use_case.transaction.DeleteTransactionUseCase
 import com.finance.application.use_case.transaction.ListAccountTransactionsUseCase
+import com.finance.application.use_case.transaction.ListCardTransactionsUseCase
 import com.finance.application.use_case.transaction.ListCategoryTransactionsUseCase
 import com.finance.application.use_case.transaction.ListResponsibleTransactionsUseCase
 import com.finance.application.use_case.transaction.UpdateTransactionUseCase
@@ -37,7 +38,8 @@ class TransactionController(
     private val listAccountTransactionsUseCase: ListAccountTransactionsUseCase,
     private val listCategoryTransactionsUseCase: ListCategoryTransactionsUseCase,
     private val toggleTransactionStatusUseCase: ToggleTransactionStatusUseCase,
-    private val listResponsibleTransactionsUseCase: ListResponsibleTransactionsUseCase
+    private val listResponsibleTransactionsUseCase: ListResponsibleTransactionsUseCase,
+    private val listCardTransactionsUseCase: ListCardTransactionsUseCase
 ) {
 
     @PostMapping
@@ -104,6 +106,18 @@ class TransactionController(
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<List<TransactionResponse>> {
         val response = listResponsibleTransactionsUseCase.execute(authenticatedUser.id, month, year)
+        return ResponseEntity.ok(response)
+    }
+
+    @GetMapping("/card/{cardId}")
+    @Operation(summary = "Listar transações de um cartão de crédito por competência de data")
+    fun listCardTransactions(
+        @PathVariable cardId: UUID,
+        @RequestParam(required = false) month: Int?,
+        @RequestParam(required = false) year: Int?,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<List<TransactionResponse>> {
+        val response = listCardTransactionsUseCase.execute(cardId, month, year, authenticatedUser.id)
         return ResponseEntity.ok(response)
     }
 

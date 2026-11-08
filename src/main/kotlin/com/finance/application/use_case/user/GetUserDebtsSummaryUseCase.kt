@@ -17,9 +17,15 @@ class GetUserDebtsSummaryUseCase(
     private val calculateGroupDebtsUseCase: CalculateGroupDebtsUseCase
 ) {
     @Transactional(readOnly = true)
-    fun execute(userId: UUID): UserDebtsSummaryResponse {
+    fun execute(userId: UUID, month: Int? = null, year: Int? = null): UserDebtsSummaryResponse {
+        val targetYm = if (month != null && year != null) {
+            if (month !in 1..12) throw IllegalArgumentException("O mês deve estar entre 1 e 12.")
+            YearMonth.of(year, month)
+        } else {
+            YearMonth.now()
+        }
+
         val memberships = groupMemberRepository.findAllByUserId(userId)
-        val currentYm = YearMonth.now()
 
         val groupSummaries = mutableListOf<UserDebtGroupSummary>()
         var totalOwedCurrent = 0
@@ -32,7 +38,7 @@ class GetUserDebtsSummaryUseCase(
             val debts = calculateGroupDebtsUseCase.execute(group.id, userId)
 
             val currentMonthDebt = debts.monthlyBalances.find {
-                it.month == currentYm.monthValue && it.year == currentYm.year
+                it.month == targetYm.monthValue && it.year == targetYm.year
             }
 
             val owedCurrent = currentMonthDebt?.userBalances
@@ -51,7 +57,7 @@ class GetUserDebtsSummaryUseCase(
             totalOwedAll += owedTotal
             totalReceivableAll += receivableTotal
 
-            if (owedTotal > 0 || receivableTotal > 0) {
+            if (owedTotal > 0 || receivableTotal > 0 || owedCurrent > 0 || receivableCurrent > 0) {
                 groupSummaries.add(
                     UserDebtGroupSummary(
                         groupId = group.id,

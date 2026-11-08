@@ -50,9 +50,11 @@ class UserController(
     @GetMapping("/me/debts-summary")
     @Operation(summary = "Resumo geral de dívidas e valores a receber do usuário")
     fun getDebtsSummary(
+        @org.springframework.web.bind.annotation.RequestParam(required = false) month: Int?,
+        @org.springframework.web.bind.annotation.RequestParam(required = false) year: Int?,
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<UserDebtsSummaryResponse> {
-        val summary = getUserDebtsSummaryUseCase.execute(authenticatedUser.id)
+        val summary = getUserDebtsSummaryUseCase.execute(authenticatedUser.id, month, year)
         return ResponseEntity.ok(summary)
     }
 

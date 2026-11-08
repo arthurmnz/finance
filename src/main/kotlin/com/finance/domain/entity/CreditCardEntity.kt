@@ -13,7 +13,7 @@ class CreditCardEntity(
     limitAmount: Int,
     closingDay: Int,
     dueDay: Int,
-    groupId: UUID?,
+    groupId: UUID? = null,
     val createdAt: LocalDateTime = LocalDateTime.now(),
     updatedAt: LocalDateTime = LocalDateTime.now()
 ) {
