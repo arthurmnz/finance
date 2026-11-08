@@ -43,6 +43,8 @@ class SecurityConfig(
                         "/swagger-ui.html",
                         "/v3/api-docs/**",
                     ).permitAll()
+                    // Painel de Administração
+                    .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                     // Todas as demais rotas exigem autenticação
                     .anyRequest().authenticated()
             }

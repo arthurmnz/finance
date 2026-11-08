@@ -36,6 +36,10 @@ class LoginUseCase(
             throw UnauthorizedException("Credenciais inválidas.")
         }
 
+        if (!user.isActive) {
+            throw UnauthorizedException("Esta conta foi desativada ou bloqueada pelo administrador.")
+        }
+
         val accessToken = tokenProvider.generateAccessToken(user)
         val refreshTokenValue = tokenProvider.generateRefreshToken()
         val expiresAt = LocalDateTime.now().plus(tokenProvider.getRefreshTokenDuration())

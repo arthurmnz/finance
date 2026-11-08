@@ -17,6 +17,8 @@ class UserMapper {
             lastName = Name(jpaEntity.lastName),
             email = Email(jpaEntity.email),
             passwordHash = PasswordHash(jpaEntity.passwordHash),
+            role = jpaEntity.role,
+            isActive = jpaEntity.isActive,
             createdAt = jpaEntity.createdAt,
             updatedAt = jpaEntity.updatedAt,
         )
@@ -29,6 +31,8 @@ class UserMapper {
             lastName = domainEntity.lastName.value,
             email = domainEntity.email.normalized,
             passwordHash = domainEntity.passwordHash.value,
+            role = domainEntity.role,
+            isActive = domainEntity.isActive,
             createdAt = domainEntity.createdAt,
             updatedAt = domainEntity.updatedAt,
         )

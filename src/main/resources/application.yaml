@@ -47,3 +47,10 @@ resend:
 frontend:
   url: ${FRONTEND_URL:http://localhost:5173}
 
+app:
+  admin:
+    email: ${ADMIN_EMAIL:}
+    password: ${ADMIN_PASSWORD:}
+    first-name: ${ADMIN_FIRST_NAME:Admin}
+    last-name: ${ADMIN_LAST_NAME:Sistema}
+

@@ -1,5 +1,6 @@
 package com.finance.domain.entity
 
+import com.finance.domain.enum.UserRole
 import com.finance.domain.value_object.Email
 import com.finance.domain.value_object.Name
 import com.finance.domain.value_object.PasswordHash
@@ -12,6 +13,8 @@ class UserEntity(
     lastName: Name,
     email: Email,
     passwordHash: PasswordHash,
+    role: UserRole = UserRole.USER,
+    isActive: Boolean = true,
     val createdAt: LocalDateTime = LocalDateTime.now(),
     updatedAt: LocalDateTime = LocalDateTime.now(),
 ) {
@@ -27,6 +30,12 @@ class UserEntity(
     var passwordHash: PasswordHash = passwordHash
         private set
 
+    var role: UserRole = role
+        private set
+
+    var isActive: Boolean = isActive
+        private set
+
     var updatedAt: LocalDateTime = updatedAt
         private set
 
@@ -35,15 +44,39 @@ class UserEntity(
         lastName: Name,
         email: Email,
         passwordHash: PasswordHash,
+        role: UserRole = UserRole.USER,
+        isActive: Boolean = true,
     ) : this(
         id = UUID.randomUUID(),
         firstName = firstName,
         lastName = lastName,
         email = email,
         passwordHash = passwordHash,
+        role = role,
+        isActive = isActive,
         createdAt = LocalDateTime.now(),
         updatedAt = LocalDateTime.now(),
     )
+
+    fun activate() {
+        this.isActive = true
+        this.updatedAt = LocalDateTime.now()
+    }
+
+    fun deactivate() {
+        this.isActive = false
+        this.updatedAt = LocalDateTime.now()
+    }
+
+    fun toggleActive() {
+        this.isActive = !this.isActive
+        this.updatedAt = LocalDateTime.now()
+    }
+
+    fun changeRole(newRole: UserRole) {
+        this.role = newRole
+        this.updatedAt = LocalDateTime.now()
+    }
 
     fun updateName(newFirstName: Name, newLastName: Name) {
         this.firstName = newFirstName
@@ -72,6 +105,6 @@ class UserEntity(
     override fun hashCode(): Int = id.hashCode()
 
     override fun toString(): String {
-        return "UserEntity(id=$id, firstName=$firstName, lastName=$lastName, email=$email, createdAt=$createdAt, updatedAt=$updatedAt)"
+        return "UserEntity(id=$id, firstName=$firstName, lastName=$lastName, email=$email, role=$role, isActive=$isActive, createdAt=$createdAt, updatedAt=$updatedAt)"
     }
 }

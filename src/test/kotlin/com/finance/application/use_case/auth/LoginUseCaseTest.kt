@@ -98,6 +98,25 @@ class LoginUseCaseTest {
             loginUseCase.execute(request)
         }
     }
+
+    @Test
+    fun `should throw UnauthorizedException when user is inactive`() {
+        val user = UserEntity(
+            firstName = Name("Blocked"),
+            lastName = Name("User"),
+            email = Email("blocked@finance.com"),
+            passwordHash = PasswordHash("hashed_Secret123"),
+            isActive = false
+        )
+        userRepository.save(user)
+
+        val request = LoginRequest(email = "blocked@finance.com", password = "Secret123")
+
+        val exception = assertThrows<UnauthorizedException> {
+            loginUseCase.execute(request)
+        }
+        assertEquals("Esta conta foi desativada ou bloqueada pelo administrador.", exception.message)
+    }
 }
 
 class InMemoryRefreshTokenRepository : RefreshTokenRepository {

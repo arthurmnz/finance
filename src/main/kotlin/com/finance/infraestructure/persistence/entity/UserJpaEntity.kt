@@ -1,7 +1,10 @@
 package com.finance.infraestructure.persistence.entity
 
+import com.finance.domain.enum.UserRole
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
+import jakarta.persistence.EnumType
+import jakarta.persistence.Enumerated
 import jakarta.persistence.Id
 import jakarta.persistence.Table
 import java.time.LocalDateTime
@@ -25,6 +28,13 @@ class UserJpaEntity(
 
     @Column(name = "password_hash", nullable = false, length = 255)
     var passwordHash: String,
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "role", nullable = false, columnDefinition = "varchar(20) default 'USER'")
+    var role: UserRole = UserRole.USER,
+
+    @Column(name = "is_active", nullable = false, columnDefinition = "boolean default true")
+    var isActive: Boolean = true,
 
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: LocalDateTime = LocalDateTime.now(),

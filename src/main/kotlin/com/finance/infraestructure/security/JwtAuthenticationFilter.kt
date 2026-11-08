@@ -2,6 +2,7 @@ package com.finance.infraestructure.security
 
 import com.finance.application.port.TokenProviderPort
 import com.finance.application.service.UserService
+import com.finance.domain.enum.UserRole
 import com.finance.domain.value_object.Email
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
@@ -30,7 +31,17 @@ class JwtAuthenticationFilter(
             if (email != null && SecurityContextHolder.getContext().authentication == null) {
                 val user = userService.findOptionalByEmail(Email(email))
                 if (user != null) {
-                    val authorities = listOf(SimpleGrantedAuthority("ROLE_USER"))
+                    if (!user.isActive) {
+                        response.status = HttpServletResponse.SC_FORBIDDEN
+                        response.contentType = "application/json;charset=UTF-8"
+                        response.writer.write("""{"status":403,"error":"Forbidden","message":"Esta conta foi desativada ou bloqueada pelo administrador."}""")
+                        return
+                    }
+                    val authorities = if (user.role == UserRole.ADMIN) {
+                        listOf(SimpleGrantedAuthority("ROLE_ADMIN"), SimpleGrantedAuthority("ROLE_USER"))
+                    } else {
+                        listOf(SimpleGrantedAuthority("ROLE_USER"))
+                    }
                     val authentication = UsernamePasswordAuthenticationToken(user, null, authorities)
                     SecurityContextHolder.getContext().authentication = authentication
                 }

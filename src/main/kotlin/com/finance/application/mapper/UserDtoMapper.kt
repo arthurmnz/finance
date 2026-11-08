@@ -14,6 +14,8 @@ class UserDtoMapper {
             firstName = user.firstName.value,
             lastName = user.lastName.value,
             email = user.email.normalized,
+            role = user.role,
+            isActive = user.isActive,
             createdAt = user.createdAt,
             updatedAt = user.updatedAt,
         )

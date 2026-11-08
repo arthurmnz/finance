@@ -6,8 +6,10 @@ import com.finance.domain.value_object.PasswordHash
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 class UserEntityTest {
 
@@ -82,5 +84,30 @@ class UserEntityTest {
         assertEquals(user1, user2)
         assertEquals(user1.hashCode(), user2.hashCode())
         assertNotEquals(user1, user3)
+    }
+
+    @Test
+    fun `should have default role USER and active true, and support updates`() {
+        val user = UserEntity(
+            firstName = Name("Admin"),
+            lastName = Name("Test"),
+            email = Email("admin.test@example.com"),
+            passwordHash = PasswordHash("pwd123")
+        )
+
+        assertEquals(com.finance.domain.enum.UserRole.USER, user.role)
+        assertTrue(user.isActive)
+
+        user.changeRole(com.finance.domain.enum.UserRole.ADMIN)
+        assertEquals(com.finance.domain.enum.UserRole.ADMIN, user.role)
+
+        user.deactivate()
+        assertFalse(user.isActive)
+
+        user.activate()
+        assertTrue(user.isActive)
+
+        user.toggleActive()
+        assertFalse(user.isActive)
     }
 }
