@@ -37,7 +37,9 @@ class ListAccountTransactionsUseCase(
             }
         }
 
-        val transactions = transactionRepository.findByAccountId(accountId)
+        val sourceTransactions = transactionRepository.findByAccountId(accountId)
+        val destTransactions = transactionRepository.findByDestinationAccountId(accountId)
+        val transactions = (sourceTransactions + destTransactions).distinctBy { it.id }
 
         val filteredTransactions = transactions.filter {
             (month == null || it.date.monthValue == month) &&
