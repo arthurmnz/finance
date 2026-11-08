@@ -10,6 +10,7 @@ interface SpringDataTransactionRepository : JpaRepository<TransactionJpaEntity, 
     fun findByCategoryId(categoryId: UUID): List<TransactionJpaEntity>
     fun findByDestinationAccountId(destinationAccountId: UUID): List<TransactionJpaEntity>
     fun findByCreditCardId(creditCardId: UUID): List<TransactionJpaEntity>
+    fun findByCreditCardInvoiceId(creditCardInvoiceId: UUID): List<TransactionJpaEntity>
     fun findByResponsibleId(responsibleId: UUID): List<TransactionJpaEntity>
 
     @org.springframework.data.jpa.repository.Query("""

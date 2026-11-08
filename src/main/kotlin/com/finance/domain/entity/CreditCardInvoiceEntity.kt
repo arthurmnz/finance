@@ -32,6 +32,17 @@ class CreditCardInvoiceEntity(
         this.updatedAt = LocalDateTime.now()
     }
 
+    fun subtractPayment(amount: Int) {
+        require(amount >= 0) { "O valor a subtrair não pode ser negativo." }
+        this.paidAmount = (this.paidAmount - amount).coerceAtLeast(0)
+        this.updatedAt = LocalDateTime.now()
+    }
+
+    fun setPaidAmount(amount: Int) {
+        this.paidAmount = amount.coerceAtLeast(0)
+        this.updatedAt = LocalDateTime.now()
+    }
+
     fun setCarriedOver(amount: Int) {
         this.carriedOverAmount = amount.coerceAtLeast(0)
         this.updatedAt = LocalDateTime.now()

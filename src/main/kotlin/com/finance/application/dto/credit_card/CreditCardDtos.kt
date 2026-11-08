@@ -56,7 +56,8 @@ data class CreditCardInvoiceResponse(
     val remainingAmount: Int,
     val status: String,
     val transactions: List<TransactionResponse>,
-    val byResponsible: List<ResponsibleSummary>
+    val byResponsible: List<ResponsibleSummary>,
+    val payments: List<TransactionResponse> = emptyList()
 ) {
     data class ResponsibleSummary(
         val user: GroupUserSummary,

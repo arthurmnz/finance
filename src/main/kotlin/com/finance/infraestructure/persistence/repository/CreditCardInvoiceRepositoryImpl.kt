@@ -17,6 +17,10 @@ class CreditCardInvoiceRepositoryImpl(
         mapper.toInvoiceDomain(jpa.save(mapper.toInvoiceJpa(invoice)))
 
     @Transactional(readOnly = true)
+    override fun findById(id: UUID): CreditCardInvoiceEntity? =
+        jpa.findById(id).map { mapper.toInvoiceDomain(it) }.orElse(null)
+
+    @Transactional(readOnly = true)
     override fun findByCardAndPeriod(creditCardId: UUID, month: Int, year: Int): CreditCardInvoiceEntity? =
         jpa.findByCreditCardIdAndMonthAndYear(creditCardId, month, year)?.let { mapper.toInvoiceDomain(it) }
 

@@ -2,6 +2,8 @@ package com.finance.application.use_case.transaction
 
 import com.finance.application.dto.transaction.TransactionResponse
 import com.finance.application.mapper.TransactionDtoMapper
+import com.finance.domain.entity.CreditCardInvoiceEntity
+import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccountNotFoundException
@@ -9,6 +11,8 @@ import com.finance.domain.exception.TransactionNotFoundException
 import com.finance.domain.exception.UnauthorizedException
 import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.CategoryRepository
+import com.finance.domain.repository.CreditCardInvoiceRepository
+import com.finance.domain.repository.CreditCardRepository
 import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.repository.UserRepository
 import org.springframework.stereotype.Service
@@ -20,7 +24,9 @@ class ToggleTransactionStatusUseCase(
     private val transactionRepository: TransactionRepository,
     private val accountRepository: AccountRepository,
     private val userRepository: UserRepository,
-    private val categoryRepository: CategoryRepository
+    private val categoryRepository: CategoryRepository,
+    private val creditCardInvoiceRepository: CreditCardInvoiceRepository,
+    private val creditCardRepository: CreditCardRepository
 ) {
     @Transactional
     fun execute(userId: UUID, transactionId: UUID): TransactionResponse {
@@ -58,6 +64,16 @@ class ToggleTransactionStatusUseCase(
             accountRepository.save(account)
         }
 
+        val invoice = findInvoiceForPaymentTx(transaction)
+        if (invoice != null) {
+            if (newStatus == TransactionStatus.COMPLETED) {
+                invoice.addPayment(transaction.amount)
+            } else {
+                invoice.subtractPayment(transaction.amount)
+            }
+            creditCardInvoiceRepository.save(invoice)
+        }
+
         transaction.update(
             newTitle = transaction.title,
             newAmount = transaction.amount,
@@ -73,5 +89,20 @@ class ToggleTransactionStatusUseCase(
             userRepository.findById(transaction.responsibleId),
             category
         )
+    }
+
+    private fun findInvoiceForPaymentTx(tx: TransactionEntity): CreditCardInvoiceEntity? {
+        if (tx.creditCardInvoiceId != null) {
+            return creditCardInvoiceRepository.findById(tx.creditCardInvoiceId)
+        }
+        val regex = Regex("""^Pagamento fatura (.+?) \((\d{1,2})/(\d{4})\)$""")
+        val match = regex.find(tx.title) ?: return null
+        val (cardName, monthStr, yearStr) = match.destructured
+        val month = monthStr.toIntOrNull() ?: return null
+        val year = yearStr.toIntOrNull() ?: return null
+
+        val cards = creditCardRepository.findAllByOwnerId(tx.responsibleId)
+        val card = cards.find { it.name.equals(cardName.trim(), ignoreCase = true) } ?: return null
+        return creditCardInvoiceRepository.findByCardAndPeriod(card.id, month, year)
     }
 }

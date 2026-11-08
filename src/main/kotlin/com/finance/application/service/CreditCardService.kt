@@ -219,8 +219,10 @@ class CreditCardService(
 
         val currentView = buildInvoiceResponse(card, month, year, userCache())
 
-        if (request.amount > 0) {
+        val savedInvoice = if (request.amount > 0) {
             invoice.addPayment(request.amount)
+            val saved = invoiceRepository.save(invoice)
+
             account.subtractBalance(request.amount)
             accountRepository.save(account)
 
@@ -233,12 +235,15 @@ class CreditCardService(
                 type = TransactionType.EXPENSE,
                 destinationAccountId = null,
                 categoryId = null,
-                status = TransactionStatus.COMPLETED
+                status = TransactionStatus.COMPLETED,
+                creditCardInvoiceId = saved.id
             )
             transactionRepository.save(paymentTx)
+            saved
+        } else {
+            invoiceRepository.save(invoice)
         }
 
-        val savedInvoice = invoiceRepository.save(invoice)
         val remainingAfterPayment = (currentView.totalAmount - savedInvoice.paidAmount).coerceAtLeast(0)
 
         if (request.rollRemainingToNextMonth || request.nextMonthRevolvingInterest != null) {
@@ -288,14 +293,38 @@ class CreditCardService(
         users: Map<UUID, UserEntity>
     ): CreditCardInvoiceResponse {
         val txs = transactionRepository.findByCreditCardId(card.id)
-            .filter { effectiveInvoicePeriod(card, it) == YearMonth.of(year, month) }
+            .filter { it.creditCardInvoiceId == null && !it.title.startsWith("Pagamento fatura") && effectiveInvoicePeriod(card, it) == YearMonth.of(year, month) }
             .sortedByDescending { it.date }
 
-        val invoiceEntity = invoiceRepository.findByCardAndPeriod(card.id, month, year)
+        var invoiceEntity = invoiceRepository.findByCardAndPeriod(card.id, month, year)
+        val directPayments = if (invoiceEntity != null) {
+            transactionRepository.findByCreditCardInvoiceId(invoiceEntity.id)
+        } else {
+            emptyList()
+        }
+
+        val legacyTitlePadded = "Pagamento fatura ${card.name} (%02d/%d)".format(month, year)
+        val legacyTitleUnpadded = "Pagamento fatura ${card.name} ($month/$year)"
+        val legacyPayments = transactionRepository.findByAccountId(card.accountId)
+            .filter { it.creditCardInvoiceId == null && (it.title == legacyTitlePadded || it.title == legacyTitleUnpadded) }
+
+        val allPayments = (directPayments + legacyPayments).distinctBy { it.id }
+
+        val completedPaymentsTotal = allPayments.filter { it.status == TransactionStatus.COMPLETED }.sumOf { it.amount }
+        val effectivePaid = if (invoiceEntity != null) {
+            if (invoiceEntity.paidAmount != completedPaymentsTotal) {
+                invoiceEntity.setPaidAmount(completedPaymentsTotal)
+                invoiceEntity = invoiceRepository.save(invoiceEntity)
+            }
+            invoiceEntity.paidAmount
+        } else {
+            completedPaymentsTotal
+        }
+
         val purchasesAmount = txs.sumOf { if (it.type == TransactionType.INCOME) -it.amount else it.amount }.coerceAtLeast(0)
         val carriedOver = invoiceEntity?.carriedOverAmount ?: 0
         val revolving = invoiceEntity?.revolvingInterestAmount ?: 0
-        val paid = invoiceEntity?.paidAmount ?: 0
+        val paid = effectivePaid
         val total = purchasesAmount + carriedOver + revolving
         val remaining = (total - paid).coerceAtLeast(0)
 
@@ -321,6 +350,10 @@ class CreditCardService(
         val invoiceCategoryIds = txs.mapNotNull { it.categoryId }.distinct()
         val invoiceCategoryMap = invoiceCategoryIds.mapNotNull { categoryRepository.findById(it) }.associateBy { it.id }
 
+        val paymentsResponse = allPayments.sortedByDescending { it.date }.map {
+            TransactionDtoMapper.toResponse(it, users[it.responsibleId])
+        }
+
         return CreditCardInvoiceResponse(
             creditCardId = card.id,
             month = month,
@@ -335,7 +368,8 @@ class CreditCardService(
             remainingAmount = remaining,
             status = status,
             transactions = txs.map { TransactionDtoMapper.toResponse(it, users[it.responsibleId], invoiceCategoryMap[it.categoryId]) },
-            byResponsible = byResponsible
+            byResponsible = byResponsible,
+            payments = paymentsResponse
         )
     }
 

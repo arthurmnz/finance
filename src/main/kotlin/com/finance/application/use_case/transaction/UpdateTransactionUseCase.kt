@@ -3,6 +3,7 @@ package com.finance.application.use_case.transaction
 import com.finance.application.dto.transaction.TransactionResponse
 import com.finance.application.dto.transaction.UpdateTransactionRequest
 import com.finance.application.mapper.TransactionDtoMapper
+import com.finance.domain.entity.CreditCardInvoiceEntity
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.enum.RecurrenceFrequency
 import com.finance.domain.enum.TransactionStatus
@@ -14,6 +15,8 @@ import com.finance.domain.exception.TransactionNotFoundException
 import com.finance.domain.exception.UnauthorizedException
 import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.CategoryRepository
+import com.finance.domain.repository.CreditCardInvoiceRepository
+import com.finance.domain.repository.CreditCardRepository
 import com.finance.domain.repository.GroupMemberRepository
 import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.repository.UserRepository
@@ -28,7 +31,9 @@ class UpdateTransactionUseCase(
     private val accountRepository: AccountRepository,
     private val userRepository: UserRepository,
     private val categoryRepository: CategoryRepository,
-    private val groupMemberRepository: GroupMemberRepository
+    private val groupMemberRepository: GroupMemberRepository,
+    private val creditCardInvoiceRepository: CreditCardInvoiceRepository,
+    private val creditCardRepository: CreditCardRepository
 ) {
     @Transactional
     fun execute(userId: UUID, transactionId: UUID, request: UpdateTransactionRequest): TransactionResponse {
@@ -111,6 +116,9 @@ class UpdateTransactionUseCase(
 
                 val targetStatus = if (tx.id == transactionId) request.status else tx.status
                 val targetDate = if (tx.id == transactionId) request.date else tx.date
+                val oldStatus = tx.status
+                val oldAmount = tx.amount
+                val invoice = findInvoiceForPaymentTx(tx)
 
                 tx.update(
                     newTitle = request.title,
@@ -119,6 +127,15 @@ class UpdateTransactionUseCase(
                     newCategoryId = request.categoryId,
                     newStatus = targetStatus
                 )
+
+                if (invoice != null) {
+                    val oldPaid = if (oldStatus == TransactionStatus.COMPLETED) oldAmount else 0
+                    val newPaid = if (targetStatus == TransactionStatus.COMPLETED) request.amount else 0
+                    if (newPaid != oldPaid) {
+                        invoice.setPaidAmount((invoice.paidAmount + (newPaid - oldPaid)).coerceAtLeast(0))
+                        creditCardInvoiceRepository.save(invoice)
+                    }
+                }
 
                 if (targetStatus == TransactionStatus.COMPLETED) {
                     when (tx.type) {
@@ -200,5 +217,20 @@ class UpdateTransactionUseCase(
             RecurrenceFrequency.MONTHLY -> currentDate.plusMonths(interval.toLong())
             RecurrenceFrequency.YEARLY -> currentDate.plusYears(interval.toLong())
         }
+    }
+
+    private fun findInvoiceForPaymentTx(tx: TransactionEntity): CreditCardInvoiceEntity? {
+        if (tx.creditCardInvoiceId != null) {
+            return creditCardInvoiceRepository.findById(tx.creditCardInvoiceId)
+        }
+        val regex = Regex("""^Pagamento fatura (.+?) \((\d{1,2})/(\d{4})\)$""")
+        val match = regex.find(tx.title) ?: return null
+        val (cardName, monthStr, yearStr) = match.destructured
+        val month = monthStr.toIntOrNull() ?: return null
+        val year = yearStr.toIntOrNull() ?: return null
+
+        val cards = creditCardRepository.findAllByOwnerId(tx.responsibleId)
+        val card = cards.find { it.name.equals(cardName.trim(), ignoreCase = true) } ?: return null
+        return creditCardInvoiceRepository.findByCardAndPeriod(card.id, month, year)
     }
 }

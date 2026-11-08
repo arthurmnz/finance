@@ -27,6 +27,7 @@ data class TransactionResponse(
     val recurrenceInterval: Int?,
     val isInfinite: Boolean,
     val creditCardId: UUID? = null,
+    val creditCardInvoiceId: UUID? = null,
     val invoiceMonth: Int? = null,
     val invoiceYear: Int? = null,
     val installmentNumber: Int? = null,

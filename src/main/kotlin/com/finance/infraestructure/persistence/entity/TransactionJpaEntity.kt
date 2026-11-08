@@ -65,6 +65,9 @@ class TransactionJpaEntity(
     @Column(name = "credit_card_id")
     var creditCardId: UUID? = null,
 
+    @Column(name = "credit_card_invoice_id")
+    var creditCardInvoiceId: UUID? = null,
+
     @Column(name = "invoice_month")
     var invoiceMonth: Int? = null,
 

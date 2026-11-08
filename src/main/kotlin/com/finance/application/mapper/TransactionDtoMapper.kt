@@ -48,6 +48,7 @@ object TransactionDtoMapper {
             recurrenceInterval = entity.recurrenceInterval,
             isInfinite = entity.isInfinite,
             creditCardId = entity.creditCardId,
+            creditCardInvoiceId = entity.creditCardInvoiceId,
             invoiceMonth = entity.invoiceMonth,
             invoiceYear = entity.invoiceYear,
             installmentNumber = entity.installmentNumber,
