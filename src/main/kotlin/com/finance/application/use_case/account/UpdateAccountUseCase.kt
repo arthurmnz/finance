@@ -28,7 +28,8 @@ class UpdateAccountUseCase(
             newName = request.name,
             newStartBalance = request.startBalance,
             newType = request.type,
-            newTax = request.tax
+            newTax = request.tax,
+            newIncludeInTotal = request.includeInTotal
         )
 
         val saved = accountRepository.save(account)

@@ -13,6 +13,7 @@ class AccountEntity(
     type: AccountType,
     tax: Int?,
     groupId: UUID?,
+    includeInTotal: Boolean = true,
     val createdAt: LocalDateTime = LocalDateTime.now(),
     updatedAt: LocalDateTime = LocalDateTime.now()
 ) {
@@ -34,6 +35,9 @@ class AccountEntity(
     var groupId: UUID? = groupId
         private set
 
+    var includeInTotal: Boolean = includeInTotal
+        private set
+
     var updatedAt: LocalDateTime = updatedAt
         private set
 
@@ -42,7 +46,8 @@ class AccountEntity(
         name: String,
         startBalance: Int,
         type: AccountType,
-        tax: Int?
+        tax: Int?,
+        includeInTotal: Boolean = true
     ) : this(
         id = UUID.randomUUID(),
         ownerId = ownerId,
@@ -51,12 +56,19 @@ class AccountEntity(
         balance = startBalance,
         type = type,
         tax = validateTax(type, tax),
-        groupId = null
+        groupId = null,
+        includeInTotal = includeInTotal
     ) {
         require(name.isNotBlank()) { "Nome da conta não pode ser vazio." }
     }
 
-    fun update(newName: String, newStartBalance: Int, newType: AccountType, newTax: Int?) {
+    fun update(
+        newName: String,
+        newStartBalance: Int,
+        newType: AccountType,
+        newTax: Int?,
+        newIncludeInTotal: Boolean = this.includeInTotal
+    ) {
         require(newName.isNotBlank()) { "Nome da conta não pode ser vazio." }
         
         // Se o saldo inicial mudar, ajustamos o saldo atual.
@@ -68,6 +80,7 @@ class AccountEntity(
         this.name = newName.trim()
         this.type = newType
         this.tax = validateTax(newType, newTax)
+        this.includeInTotal = newIncludeInTotal
         this.updatedAt = LocalDateTime.now()
     }
 

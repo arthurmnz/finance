@@ -1,6 +1,7 @@
 package com.finance.application.use_case.account
 
 import com.finance.application.dto.account.TotalBalanceResponse
+import com.finance.domain.entity.AccountEntity
 import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.enum.TransactionType
@@ -29,10 +30,8 @@ class GetTotalBalanceUseCase(
 
         val accounts = accountRepository.findAllByOwnerId(authenticatedUserId)
         
-        val filteredAccounts = if (!ignoreAccountIds.isNullOrEmpty()) {
-            accounts.filter { it.id !in ignoreAccountIds }
-        } else {
-            accounts
+        val filteredAccounts = accounts.filter { account ->
+            account.includeInTotal && (ignoreAccountIds.isNullOrEmpty() || account.id !in ignoreAccountIds)
         }
 
         val total = filteredAccounts.sumOf { it.balance }
@@ -53,9 +52,15 @@ class GetTotalBalanceUseCase(
             emptyList()
         }
 
+        val accountsById = accounts.associateBy { it.id }.toMutableMap()
         val responsibleTransactions = transactionRepository.findByResponsibleIdAndDateBetween(authenticatedUserId, startDate, endDate)
         val cardTransactions = responsibleTransactions.filter { tx ->
-            tx.creditCardId != null && (ignoreAccountIds == null || tx.accountId !in ignoreAccountIds)
+            if (tx.creditCardId == null) return@filter false
+            if (!ignoreAccountIds.isNullOrEmpty() && tx.accountId in ignoreAccountIds) return@filter false
+            val cardAccount = accountsById[tx.accountId] ?: accountRepository.findById(tx.accountId)?.also {
+                accountsById[tx.accountId] = it
+            }
+            cardAccount?.includeInTotal != false
         }
 
         val allUserTransactions = (accountTransactions + cardTransactions).distinctBy { it.id }

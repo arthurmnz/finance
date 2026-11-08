@@ -21,6 +21,7 @@ class AccountDtoMapper {
             type = account.type,
             tax = account.tax,
             groupId = account.groupId,
+            includeInTotal = account.includeInTotal,
             createdAt = account.createdAt,
             updatedAt = account.updatedAt
         )

@@ -14,6 +14,7 @@ data class AccountResponse(
     val type: AccountType,
     val tax: Int?,
     val groupId: UUID?,
+    val includeInTotal: Boolean,
     val createdAt: LocalDateTime,
     val updatedAt: LocalDateTime
 )

@@ -22,7 +22,8 @@ class CreateAccountUseCase(
             name = request.name,
             startBalance = request.startBalance,
             type = request.type,
-            tax = request.tax
+            tax = request.tax,
+            includeInTotal = request.includeInTotal
         )
 
         val saved = accountRepository.save(account)

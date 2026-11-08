@@ -17,6 +17,7 @@ class AccountMapper {
             type = jpaEntity.type,
             tax = jpaEntity.tax,
             groupId = jpaEntity.groupId,
+            includeInTotal = jpaEntity.includeInTotal,
             createdAt = jpaEntity.createdAt,
             updatedAt = jpaEntity.updatedAt
         )
@@ -32,6 +33,7 @@ class AccountMapper {
             type = domainEntity.type,
             tax = domainEntity.tax,
             groupId = domainEntity.groupId,
+            includeInTotal = domainEntity.includeInTotal,
             createdAt = domainEntity.createdAt,
             updatedAt = domainEntity.updatedAt
         )

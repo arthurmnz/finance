@@ -39,6 +39,9 @@ class AccountJpaEntity(
     @Column(name = "group_id")
     var groupId: UUID?,
 
+    @Column(name = "include_in_total", nullable = false, columnDefinition = "boolean default true")
+    var includeInTotal: Boolean = true,
+
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: LocalDateTime = LocalDateTime.now(),
 

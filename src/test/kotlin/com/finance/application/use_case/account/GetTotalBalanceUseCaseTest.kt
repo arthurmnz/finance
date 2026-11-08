@@ -191,4 +191,132 @@ class GetTotalBalanceUseCaseTest {
         // Despesa apenas de account1 (4000), o cartão da conta ignorada foi descartado
         assertEquals(4000, result.monthlyExpense)
     }
+
+    @Test
+    fun `should exclude account with includeInTotal false from total balance and monthly transactions`() {
+        val userId = UUID.randomUUID()
+        val includedAccount = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userId,
+            name = "Conta Ativa",
+            startBalance = 100000,
+            balance = 100000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = null,
+            includeInTotal = true
+        )
+        val excludedAccount = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userId,
+            name = "Conta Ignorada no Total",
+            startBalance = 40000,
+            balance = 40000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = null,
+            includeInTotal = false
+        )
+
+        `when`(accountRepository.findAllByOwnerId(userId)).thenReturn(listOf(includedAccount, excludedAccount))
+
+        val startDate = LocalDate.of(2026, 10, 1)
+        val endDate = LocalDate.of(2026, 10, 31)
+
+        val txIncluded = TransactionEntity(
+            title = "Gasto Conta Ativa",
+            amount = 3000,
+            date = LocalDate.of(2026, 10, 5),
+            responsibleId = userId,
+            accountId = includedAccount.id,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED
+        )
+
+        `when`(transactionRepository.findByAccountIdInAndDateBetween(listOf(includedAccount.id), startDate, endDate))
+            .thenReturn(listOf(txIncluded))
+
+        `when`(transactionRepository.findByResponsibleIdAndDateBetween(userId, startDate, endDate))
+            .thenReturn(listOf(txIncluded))
+
+        val result = useCase.execute(userId, null, month = 10, year = 2026)
+
+        // Saldo total apenas da conta com includeInTotal = true (100000)
+        assertEquals(100000, result.total)
+        // Despesa apenas da conta ativa (3000)
+        assertEquals(3000, result.monthlyExpense)
+    }
+
+    @Test
+    fun `should exclude card transactions if linked bank account has includeInTotal false`() {
+        val userId = UUID.randomUUID()
+        val includedAccount = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userId,
+            name = "Conta Principal",
+            startBalance = 100000,
+            balance = 100000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = null,
+            includeInTotal = true
+        )
+        val excludedAccount = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userId,
+            name = "Conta Fora do Total",
+            startBalance = 50000,
+            balance = 50000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = null,
+            includeInTotal = false
+        )
+
+        `when`(accountRepository.findAllByOwnerId(userId)).thenReturn(listOf(includedAccount, excludedAccount))
+
+        val startDate = LocalDate.of(2026, 10, 1)
+        val endDate = LocalDate.of(2026, 10, 31)
+
+        val txCardOnIncludedAccount = TransactionEntity(
+            title = "Compra Cartão Conta Principal",
+            amount = 2500,
+            date = LocalDate.of(2026, 10, 10),
+            responsibleId = userId,
+            accountId = includedAccount.id,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            creditCardId = UUID.randomUUID()
+        )
+
+        val txCardOnExcludedAccount = TransactionEntity(
+            title = "Compra Cartão Conta Fora do Total",
+            amount = 6000,
+            date = LocalDate.of(2026, 10, 12),
+            responsibleId = userId,
+            accountId = excludedAccount.id,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            creditCardId = UUID.randomUUID()
+        )
+
+        `when`(transactionRepository.findByAccountIdInAndDateBetween(listOf(includedAccount.id), startDate, endDate))
+            .thenReturn(emptyList())
+
+        `when`(transactionRepository.findByResponsibleIdAndDateBetween(userId, startDate, endDate))
+            .thenReturn(listOf(txCardOnIncludedAccount, txCardOnExcludedAccount))
+
+        val result = useCase.execute(userId, null, month = 10, year = 2026)
+
+        // Saldo total apenas da conta principal (100000)
+        assertEquals(100000, result.total)
+        // Apenas a despesa do cartão vinculado à conta principal é contabilizada (2500)
+        assertEquals(2500, result.monthlyExpense)
+    }
 }

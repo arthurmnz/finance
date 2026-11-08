@@ -7,5 +7,6 @@ data class UpdateAccountRequest(
     val name: String,
     val startBalance: Int,
     val type: AccountType,
-    val tax: Int? = null
+    val tax: Int? = null,
+    val includeInTotal: Boolean = true
 )
