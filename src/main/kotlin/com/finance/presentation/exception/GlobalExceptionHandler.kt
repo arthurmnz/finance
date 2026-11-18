@@ -18,6 +18,7 @@ import com.finance.domain.exception.UnauthorizedException
 import com.finance.domain.exception.UserAlreadyExistsException
 import com.finance.domain.exception.UserNotFoundException
 import com.finance.domain.exception.CategoryNotFoundException
+import com.finance.domain.exception.InvalidCategoryException
 import com.finance.domain.exception.TransactionNotFoundException
 import com.finance.domain.exception.InvalidTransactionException
 import com.finance.domain.exception.RateLimitExceededException
@@ -214,6 +215,16 @@ class GlobalExceptionHandler {
             message = ex.message ?: "Categoria não encontrada."
         )
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error)
+    }
+
+    @ExceptionHandler(InvalidCategoryException::class)
+    fun handleInvalidCategory(ex: InvalidCategoryException): ResponseEntity<ErrorResponse> {
+        val error = ErrorResponse(
+            status = HttpStatus.UNPROCESSABLE_ENTITY.value(),
+            error = HttpStatus.UNPROCESSABLE_ENTITY.reasonPhrase,
+            message = ex.message ?: "Categoria inválida."
+        )
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(error)
     }
 
     @ExceptionHandler(TransactionNotFoundException::class)

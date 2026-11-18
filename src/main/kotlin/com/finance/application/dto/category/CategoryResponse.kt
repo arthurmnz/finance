@@ -1,5 +1,6 @@
 package com.finance.application.dto.category
 
+import com.finance.domain.enum.CategoryLevel
 import com.finance.domain.enum.CategoryType
 import java.time.LocalDateTime
 import java.util.UUID
@@ -13,6 +14,10 @@ data class CategoryResponse(
     val type: CategoryType,
     val color: String?,
     val icon: String?,
+    val level: CategoryLevel,
+    val parentId: UUID?,
+    val parent: CategoryParentSummary? = null,
+    val isDefault: Boolean = false,
     val createdAt: LocalDateTime,
     val updatedAt: LocalDateTime
 )

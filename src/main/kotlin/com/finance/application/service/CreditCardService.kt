@@ -8,6 +8,7 @@ import com.finance.application.dto.credit_card.PayInvoiceRequest
 import com.finance.application.dto.credit_card.UpdateCreditCardRequest
 import com.finance.application.dto.credit_card.UpdateInvoiceRevolvingRequest
 import com.finance.application.dto.group.GroupUserSummary
+import com.finance.application.mapper.CategoryBatchLoader
 import com.finance.application.mapper.TransactionDtoMapper
 import com.finance.domain.entity.CreditCardEntity
 import com.finance.domain.entity.CreditCardGroupRequestEntity
@@ -348,7 +349,10 @@ class CreditCardService(
         }.sortedByDescending { it.amount }
 
         val invoiceCategoryIds = txs.mapNotNull { it.categoryId }.distinct()
-        val invoiceCategoryMap = invoiceCategoryIds.mapNotNull { categoryRepository.findById(it) }.associateBy { it.id }
+        val (invoiceCategoryMap, invoiceParentMap) = CategoryBatchLoader.loadWithParents(
+            categoryRepository,
+            invoiceCategoryIds
+        )
 
         val paymentsResponse = allPayments.sortedByDescending { it.date }.map {
             TransactionDtoMapper.toResponse(it, users[it.responsibleId])
@@ -367,7 +371,11 @@ class CreditCardService(
             paidAmount = paid,
             remainingAmount = remaining,
             status = status,
-            transactions = txs.map { TransactionDtoMapper.toResponse(it, users[it.responsibleId], invoiceCategoryMap[it.categoryId]) },
+            transactions = txs.map { tx ->
+                val cat = invoiceCategoryMap[tx.categoryId]
+                val parent = cat?.parentId?.let { invoiceParentMap[it] }
+                TransactionDtoMapper.toResponse(tx, users[tx.responsibleId], cat, parent)
+            },
             byResponsible = byResponsible,
             payments = paymentsResponse
         )

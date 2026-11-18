@@ -10,9 +10,11 @@ import com.finance.domain.value_object.PasswordHash
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.CommandLineRunner
+import org.springframework.core.annotation.Order
 import org.springframework.stereotype.Component
 
 @Component
+@Order(1)
 class AdminUserSeeder(
     private val userRepository: UserRepository,
     private val passwordEncoder: PasswordEncoderPort,

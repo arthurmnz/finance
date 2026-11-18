@@ -1,12 +1,16 @@
 package com.finance.application.use_case.transaction
 
+import com.finance.application.dto.transaction.AccountSplitRequest
 import com.finance.application.dto.transaction.CreateTransactionRequest
 import com.finance.application.service.CreditCardService
 import com.finance.domain.entity.AccountEntity
+import com.finance.domain.entity.CategoryEntity
 import com.finance.domain.entity.CreditCardEntity
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.entity.UserEntity
 import com.finance.domain.enum.AccountType
+import com.finance.domain.enum.CategoryLevel
+import com.finance.domain.enum.CategoryType
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccessDeniedException
@@ -537,5 +541,325 @@ class CreateTransactionUseCaseTest {
             )
         }
         assertFalse(exDest.message!!.contains("Conta Secreta Maria"))
+    }
+
+    @Test
+    fun `should reject linking transaction to GENERAL category`() {
+        val userA = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val accountId = UUID.randomUUID()
+        val generalCategory = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Moradia",
+            description = null,
+            userId = userA.id,
+            groupId = null,
+            type = CategoryType.EXPENSE,
+            color = "#7D39EB",
+            icon = "🏠",
+            level = CategoryLevel.GENERAL
+        )
+        `when`(categoryRepository.findById(generalCategory.id)).thenReturn(generalCategory)
+
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userA.id,
+                CreateTransactionRequest(
+                    title = "Aluguel",
+                    amount = 200000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = accountId,
+                    type = TransactionType.EXPENSE,
+                    categoryId = generalCategory.id
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `should reject incompatible SPECIFIC category type for EXPENSE or INCOME but allow any type for TRANSFER`() {
+        val userA = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val acc1 = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userA.id,
+            name = "Corrente",
+            startBalance = 50000,
+            balance = 50000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = null
+        )
+        val acc2 = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userA.id,
+            name = "Poupança",
+            startBalance = 10000,
+            balance = 10000,
+            type = AccountType.SAVINGS,
+            tax = 10,
+            groupId = null
+        )
+
+        val generalIncome = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Renda",
+            description = null,
+            userId = userA.id,
+            groupId = null,
+            type = CategoryType.INCOME,
+            color = "#C6FF33",
+            icon = "💰",
+            level = CategoryLevel.GENERAL
+        )
+        val specificSalary = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Salário",
+            description = null,
+            userId = userA.id,
+            groupId = null,
+            type = CategoryType.INCOME,
+            color = "#C6FF33",
+            icon = "💼",
+            level = CategoryLevel.SPECIFIC,
+            parentId = generalIncome.id
+        )
+
+        `when`(categoryRepository.findById(specificSalary.id)).thenReturn(specificSalary)
+        `when`(categoryRepository.findById(generalIncome.id)).thenReturn(generalIncome)
+        `when`(accountRepository.findById(acc1.id)).thenReturn(acc1)
+        `when`(accountRepository.findById(acc2.id)).thenReturn(acc2)
+        `when`(userRepository.findAll()).thenReturn(listOf(userA))
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        // INCOME category on EXPENSE transaction -> InvalidTransactionException
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userA.id,
+                CreateTransactionRequest(
+                    title = "Compra",
+                    amount = 5000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = acc1.id,
+                    type = TransactionType.EXPENSE,
+                    categoryId = specificSalary.id
+                )
+            )
+        }
+
+        // TRANSFER accepts any SPECIFIC category type and enriches parent
+        val transferResult = useCase.execute(
+            userA.id,
+            CreateTransactionRequest(
+                title = "Reserva",
+                amount = 10000,
+                date = LocalDate.of(2026, 11, 10),
+                accountId = acc1.id,
+                type = TransactionType.TRANSFER,
+                destinationAccountId = acc2.id,
+                categoryId = specificSalary.id,
+                status = TransactionStatus.COMPLETED
+            )
+        )
+        assertEquals(1, transferResult.size)
+        assertEquals(specificSalary.id, transferResult[0].category?.id)
+        assertEquals(CategoryLevel.SPECIFIC, transferResult[0].category?.level)
+        assertEquals(generalIncome.id, transferResult[0].category?.parent?.id)
+        assertEquals("Renda", transferResult[0].category?.parent?.name)
+    }
+
+    @Test
+    fun `should reject group SPECIFIC category when transaction is on personal account`() {
+        val userA = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val groupId = UUID.randomUUID()
+        val personalAcc = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userA.id,
+            name = "Conta Pessoal",
+            startBalance = 50000,
+            balance = 50000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = null
+        )
+        val groupGeneral = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Moradia",
+            description = null,
+            userId = null,
+            groupId = groupId,
+            type = CategoryType.EXPENSE,
+            color = "#7D39EB",
+            icon = "🏠",
+            level = CategoryLevel.GENERAL
+        )
+        val groupSpecific = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Aluguel",
+            description = null,
+            userId = null,
+            groupId = groupId,
+            type = CategoryType.EXPENSE,
+            color = "#7D39EB",
+            icon = "🔑",
+            level = CategoryLevel.SPECIFIC,
+            parentId = groupGeneral.id
+        )
+
+        `when`(categoryRepository.findById(groupSpecific.id)).thenReturn(groupSpecific)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(groupId, userA.id)).thenReturn(true)
+        `when`(accountRepository.findById(personalAcc.id)).thenReturn(personalAcc)
+
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userA.id,
+                CreateTransactionRequest(
+                    title = "Aluguel",
+                    amount = 100000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = personalAcc.id,
+                    type = TransactionType.EXPENSE,
+                    categoryId = groupSpecific.id
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `should reject group SPECIFIC category when split mixes group account with personal or another group account`() {
+        val userA = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val groupId = UUID.randomUUID()
+        val otherGroupId = UUID.randomUUID()
+
+        val groupAcc1 = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userA.id,
+            name = "Conta Grupo 1",
+            startBalance = 50000,
+            balance = 50000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = groupId
+        )
+        val groupAcc2 = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userA.id,
+            name = "Conta Grupo 2",
+            startBalance = 50000,
+            balance = 50000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = groupId
+        )
+        val personalAcc = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userA.id,
+            name = "Conta Pessoal",
+            startBalance = 50000,
+            balance = 50000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = null
+        )
+        val otherGroupAcc = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userA.id,
+            name = "Conta Outro Grupo",
+            startBalance = 50000,
+            balance = 50000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = otherGroupId
+        )
+
+        val groupGeneral = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Moradia",
+            description = null,
+            userId = null,
+            groupId = groupId,
+            type = CategoryType.EXPENSE,
+            color = "#7D39EB",
+            icon = "🏠",
+            level = CategoryLevel.GENERAL
+        )
+        val groupSpecific = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Condomínio",
+            description = null,
+            userId = null,
+            groupId = groupId,
+            type = CategoryType.EXPENSE,
+            color = "#7D39EB",
+            icon = "🏢",
+            level = CategoryLevel.SPECIFIC,
+            parentId = groupGeneral.id
+        )
+
+        `when`(categoryRepository.findById(groupSpecific.id)).thenReturn(groupSpecific)
+        `when`(categoryRepository.findById(groupGeneral.id)).thenReturn(groupGeneral)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(groupId, userA.id)).thenReturn(true)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(otherGroupId, userA.id)).thenReturn(true)
+        `when`(accountRepository.findById(groupAcc1.id)).thenReturn(groupAcc1)
+        `when`(accountRepository.findById(groupAcc2.id)).thenReturn(groupAcc2)
+        `when`(accountRepository.findById(personalAcc.id)).thenReturn(personalAcc)
+        `when`(accountRepository.findById(otherGroupAcc.id)).thenReturn(otherGroupAcc)
+        `when`(userRepository.findAll()).thenReturn(listOf(userA))
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        // Mix group + personal -> rejected
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userA.id,
+                CreateTransactionRequest(
+                    title = "Condomínio",
+                    amount = 20000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = groupAcc1.id,
+                    type = TransactionType.EXPENSE,
+                    categoryId = groupSpecific.id,
+                    splits = listOf(
+                        AccountSplitRequest(groupAcc1.id, 10000),
+                        AccountSplitRequest(personalAcc.id, 10000)
+                    )
+                )
+            )
+        }
+
+        // Mix group + another group -> rejected
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userA.id,
+                CreateTransactionRequest(
+                    title = "Condomínio",
+                    amount = 20000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = groupAcc1.id,
+                    type = TransactionType.EXPENSE,
+                    categoryId = groupSpecific.id,
+                    splits = listOf(
+                        AccountSplitRequest(groupAcc1.id, 10000),
+                        AccountSplitRequest(otherGroupAcc.id, 10000)
+                    )
+                )
+            )
+        }
+
+        // All accounts in same group -> allowed
+        val validResult = useCase.execute(
+            userA.id,
+            CreateTransactionRequest(
+                title = "Condomínio",
+                amount = 20000,
+                date = LocalDate.of(2026, 11, 10),
+                accountId = groupAcc1.id,
+                type = TransactionType.EXPENSE,
+                categoryId = groupSpecific.id,
+                splits = listOf(
+                    AccountSplitRequest(groupAcc1.id, 10000),
+                    AccountSplitRequest(groupAcc2.id, 10000)
+                )
+            )
+        )
+        assertEquals(2, validResult.size)
+        assertEquals(groupSpecific.id, validResult[0].categoryId)
     }
 }

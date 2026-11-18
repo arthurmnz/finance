@@ -1,5 +1,6 @@
 package com.finance.presentation.exception
 
+import com.finance.domain.exception.InvalidCategoryException
 import org.junit.jupiter.api.Test
 import org.springframework.http.HttpMethod
 import org.springframework.http.HttpStatus
@@ -18,5 +19,15 @@ class GlobalExceptionHandlerTest {
         assertEquals(HttpStatus.NOT_FOUND, response.statusCode)
         assertEquals(404, response.body?.status)
         assertEquals("Rota ou recurso não encontrado.", response.body?.message)
+    }
+
+    @Test
+    fun `should return 422 for InvalidCategoryException`() {
+        val ex = InvalidCategoryException("Categoria inválida para esta operação.")
+        val response = handler.handleInvalidCategory(ex)
+
+        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, response.statusCode)
+        assertEquals(422, response.body?.status)
+        assertEquals("Categoria inválida para esta operação.", response.body?.message)
     }
 }

@@ -1,6 +1,7 @@
 package com.finance.application.use_case.transaction
 
 import com.finance.application.dto.transaction.TransactionResponse
+import com.finance.application.mapper.CategoryBatchLoader
 import com.finance.application.mapper.TransactionDtoMapper
 import com.finance.domain.exception.AccessDeniedException
 import com.finance.domain.exception.AccountNotFoundException
@@ -48,8 +49,12 @@ class ListAccountTransactionsUseCase(
 
         val users = userRepository.findAll().associateBy { it.id }
         val categoryIds = filteredTransactions.mapNotNull { it.categoryId }.distinct()
-        val categoryMap = categoryIds.mapNotNull { categoryRepository.findById(it) }.associateBy { it.id }
+        val (categoryMap, parentMap) = CategoryBatchLoader.loadWithParents(categoryRepository, categoryIds)
 
-        return filteredTransactions.map { TransactionDtoMapper.toResponse(it, users[it.responsibleId], categoryMap[it.categoryId]) }
+        return filteredTransactions.map { tx ->
+            val cat = categoryMap[tx.categoryId]
+            val parent = cat?.parentId?.let { parentMap[it] }
+            TransactionDtoMapper.toResponse(tx, users[tx.responsibleId], cat, parent)
+        }
     }
 }

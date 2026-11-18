@@ -5,6 +5,7 @@ import com.finance.application.dto.transaction.CreateTransactionRequest
 import com.finance.application.dto.transaction.TransactionResponse
 import com.finance.application.mapper.TransactionDtoMapper
 import com.finance.application.service.CreditCardService
+import com.finance.application.service.TransactionCategoryValidator
 import com.finance.domain.entity.AccountEntity
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.enum.RecurrenceFrequency
@@ -12,7 +13,6 @@ import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccessDeniedException
 import com.finance.domain.exception.AccountNotFoundException
-import com.finance.domain.exception.CategoryNotFoundException
 import com.finance.domain.exception.InvalidTransactionException
 import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.CategoryRepository
@@ -45,18 +45,14 @@ class CreateTransactionUseCase(
         if (request.recurrenceInterval <= 0 && request.isRecurring)
             throw InvalidTransactionException("O Intervalo não pode ser nulo ou negativo.")
 
-        val category = if (request.categoryId != null) {
-            val cat = categoryRepository.findById(request.categoryId)
-                ?: throw CategoryNotFoundException("Categoria não encontrada")
-            if (cat.userId != null && cat.userId != userId) {
-                throw AccessDeniedException("Você não tem permissão para usar uma categoria pessoal de outro usuário.")
-            }
-            if (cat.groupId != null && !groupMemberRepository.existsByGroupIdAndUserId(cat.groupId!!, userId)) {
-                throw AccessDeniedException("Você não tem permissão para usar categorias de um grupo do qual não é membro.")
-            }
-            cat
-        } else {
-            null
+        val category = request.categoryId?.let { catId ->
+            TransactionCategoryValidator.validateForTransaction(
+                categoryRepository = categoryRepository,
+                groupMemberRepository = groupMemberRepository,
+                categoryId = catId,
+                userId = userId,
+                transactionType = request.type
+            )
         }
 
         val creditCard = request.creditCardId?.let { creditCardService.requireCardAccess(it, userId) }
@@ -135,6 +131,20 @@ class CreateTransactionUseCase(
                 }
             }
             preloadedDestAccount = destAccount
+        }
+
+        if (category?.groupId != null) {
+            val involvedGroupIds = buildList {
+                if (creditCard != null) {
+                    add(creditCard.groupId)
+                } else {
+                    accountsById.values.forEach { add(it.groupId) }
+                    if (request.type == TransactionType.TRANSFER) {
+                        add(preloadedDestAccount?.groupId)
+                    }
+                }
+            }
+            TransactionCategoryValidator.validateGroupScope(category, involvedGroupIds)
         }
 
         var installments = if (request.isRecurring) request.recurrenceInstallments else 1
@@ -242,8 +252,11 @@ class CreateTransactionUseCase(
             }
         }
 
+        val parentCategory = category?.parentId?.let { categoryRepository.findById(it) }
         val users = userRepository.findAll().associateBy { it.id }
         val savedTransactions = transactionRepository.saveAll(transactionsToSave)
-        return savedTransactions.map { TransactionDtoMapper.toResponse(it, users[it.responsibleId], category) }
+        return savedTransactions.map {
+            TransactionDtoMapper.toResponse(it, users[it.responsibleId], category, parentCategory)
+        }
     }
 }

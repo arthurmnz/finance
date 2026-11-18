@@ -4,6 +4,7 @@ import com.finance.application.dto.auth.RegisterUserRequest
 import com.finance.application.dto.auth.RegisterUserResponse
 import com.finance.application.mapper.UserDtoMapper
 import com.finance.application.port.PasswordEncoderPort
+import com.finance.application.service.CategorySeedService
 import com.finance.application.service.UserService
 import com.finance.domain.entity.UserEntity
 import com.finance.domain.repository.UserRepository
@@ -20,6 +21,7 @@ class RegisterUserUseCase(
     private val userService: UserService,
     private val passwordEncoder: PasswordEncoderPort,
     private val userDtoMapper: UserDtoMapper,
+    private val categorySeedService: CategorySeedService,
 ) {
 
     @Transactional
@@ -42,6 +44,7 @@ class RegisterUserUseCase(
         )
 
         val savedUser = userRepository.save(newUser)
+        categorySeedService.seedDefaultsForUser(savedUser.id)
         return userDtoMapper.toRegisterResponse(savedUser)
     }
 }

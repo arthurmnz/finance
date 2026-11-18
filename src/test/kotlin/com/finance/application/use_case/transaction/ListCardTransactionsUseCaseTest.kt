@@ -4,6 +4,7 @@ import com.finance.domain.entity.CategoryEntity
 import com.finance.domain.entity.CreditCardEntity
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.entity.UserEntity
+import com.finance.domain.enum.CategoryLevel
 import com.finance.domain.enum.CategoryType
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
@@ -76,6 +77,17 @@ class ListCardTransactionsUseCaseTest {
         )
         `when`(creditCardRepository.findById(card.id)).thenReturn(card)
 
+        val catAlimentacao = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Alimentação",
+            description = null,
+            userId = user.id,
+            groupId = null,
+            type = CategoryType.EXPENSE,
+            color = "#E4FF8F",
+            icon = "🍽️",
+            level = CategoryLevel.GENERAL
+        )
         val catFood = CategoryEntity(
             id = UUID.randomUUID(),
             name = "Restaurante",
@@ -84,9 +96,12 @@ class ListCardTransactionsUseCaseTest {
             groupId = null,
             type = CategoryType.EXPENSE,
             color = "#FF0000",
-            icon = "fork"
+            icon = "fork",
+            level = CategoryLevel.SPECIFIC,
+            parentId = catAlimentacao.id
         )
-        `when`(categoryRepository.findById(catFood.id)).thenReturn(catFood)
+        `when`(categoryRepository.findByIdIn(listOf(catFood.id))).thenReturn(listOf(catFood))
+        `when`(categoryRepository.findByIdIn(listOf(catAlimentacao.id))).thenReturn(listOf(catAlimentacao))
 
         // Compra feita em 28 de outubro (fatura de novembro)
         val txOct = TransactionEntity(
@@ -129,6 +144,9 @@ class ListCardTransactionsUseCaseTest {
         assertEquals(12000, octList[0].amount)
         assertNotNull(octList[0].category)
         assertEquals("Restaurante", octList[0].category?.name)
+        assertEquals(CategoryLevel.SPECIFIC, octList[0].category?.level)
+        assertEquals(catAlimentacao.id, octList[0].category?.parentId)
+        assertEquals("Alimentação", octList[0].category?.parent?.name)
     }
 
     @Test

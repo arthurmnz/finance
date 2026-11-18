@@ -2,9 +2,13 @@ package com.finance.application.use_case.transaction
 
 import com.finance.application.dto.transaction.TransactionResponse
 import com.finance.application.mapper.TransactionDtoMapper
+import com.finance.domain.entity.CategoryEntity
+import com.finance.domain.enum.CategoryLevel
 import com.finance.domain.exception.AccessDeniedException
 import com.finance.domain.exception.CategoryNotFoundException
+import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.CategoryRepository
+import com.finance.domain.repository.CreditCardRepository
 import com.finance.domain.repository.GroupMemberRepository
 import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.repository.UserRepository
@@ -17,33 +21,89 @@ class ListCategoryTransactionsUseCase(
     private val transactionRepository: TransactionRepository,
     private val categoryRepository: CategoryRepository,
     private val groupMemberRepository: GroupMemberRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val accountRepository: AccountRepository,
+    private val creditCardRepository: CreditCardRepository
 ) {
     @Transactional(readOnly = true)
-    fun execute(categoryId: UUID, month: Int? = null, year: Int? = null, authenticatedUserId: UUID? = null): List<TransactionResponse> {
+    fun execute(
+        categoryId: UUID,
+        month: Int? = null,
+        year: Int? = null,
+        authenticatedUserId: UUID
+    ): List<TransactionResponse> {
         month?.let {
             if (month !in 1..12)
                 throw IllegalArgumentException("O mês deve estar entre 1 e 12.")
         }
 
-        val category = categoryRepository.findById(categoryId)
-        if (authenticatedUserId != null) {
-            val targetCategory = category ?: throw CategoryNotFoundException()
-            val allowed = targetCategory.userId == authenticatedUserId ||
-                (targetCategory.groupId != null && groupMemberRepository.existsByGroupIdAndUserId(targetCategory.groupId!!, authenticatedUserId))
-            if (!allowed) {
-                throw AccessDeniedException("Você não tem acesso às transações desta categoria.")
-            }
+        val category = categoryRepository.findById(categoryId) ?: throw CategoryNotFoundException()
+        val allowed = category.userId == authenticatedUserId ||
+            (category.groupId != null && groupMemberRepository.existsByGroupIdAndUserId(category.groupId!!, authenticatedUserId))
+        if (!allowed) {
+            throw AccessDeniedException("Você não tem acesso às transações desta categoria.")
         }
 
-        val transactions = transactionRepository.findByCategoryId(categoryId)
+        val childCategories = if (category.level == CategoryLevel.GENERAL) {
+            categoryRepository.findByParentId(category.id)
+                .filter { it.userId == category.userId && it.groupId == category.groupId }
+        } else {
+            emptyList()
+        }
 
-        val filteredTransactions = transactions.filter {
+        val rawTransactions = if (category.level == CategoryLevel.GENERAL) {
+            val ids = listOf(category.id) + childCategories.map { it.id }
+            transactionRepository.findByCategoryIdIn(ids)
+        } else {
+            transactionRepository.findByCategoryId(categoryId)
+        }
+
+        val groupId = category.groupId
+        val scopedTransactions = if (groupId != null) {
+            val groupAccountIds = accountRepository.findAllByGroupId(groupId).map { it.id }.toSet()
+            val groupCardIds = creditCardRepository.findAllByGroupId(groupId).map { it.id }.toSet()
+            rawTransactions.filter { tx ->
+                tx.accountId in groupAccountIds ||
+                    (tx.destinationAccountId != null && tx.destinationAccountId in groupAccountIds) ||
+                    (tx.creditCardId != null && tx.creditCardId in groupCardIds) ||
+                    tx.responsibleId == authenticatedUserId
+            }
+        } else {
+            rawTransactions.filter { tx -> tx.responsibleId == authenticatedUserId }
+        }
+
+        val filteredTransactions = scopedTransactions.filter {
             (month == null || it.date.monthValue == month) &&
-            (year == null || it.date.year == year)
+                (year == null || it.date.year == year)
+        }
+
+        if (filteredTransactions.isEmpty()) return emptyList()
+
+        val knownCategories = mutableMapOf<UUID, CategoryEntity>()
+        knownCategories[category.id] = category
+        childCategories.forEach { knownCategories[it.id] = it }
+
+        val missingCategoryIds = filteredTransactions
+            .mapNotNull { it.categoryId }
+            .distinct()
+            .filter { !knownCategories.containsKey(it) }
+        if (missingCategoryIds.isNotEmpty()) {
+            categoryRepository.findByIdIn(missingCategoryIds).forEach { knownCategories[it.id] = it }
+        }
+
+        val missingParentIds = knownCategories.values
+            .mapNotNull { it.parentId }
+            .distinct()
+            .filter { !knownCategories.containsKey(it) }
+        if (missingParentIds.isNotEmpty()) {
+            categoryRepository.findByIdIn(missingParentIds).forEach { knownCategories[it.id] = it }
         }
 
         val users = userRepository.findAll().associateBy { it.id }
-        return filteredTransactions.map { TransactionDtoMapper.toResponse(it, users[it.responsibleId], category) }
+        return filteredTransactions.map { tx ->
+            val cat = tx.categoryId?.let { knownCategories[it] }
+            val parent = cat?.parentId?.let { knownCategories[it] }
+            TransactionDtoMapper.toResponse(tx, users[tx.responsibleId], cat, parent)
+        }
     }
 }

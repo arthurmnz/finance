@@ -3,6 +3,7 @@ package com.finance.application.use_case.transaction
 import com.finance.domain.entity.CategoryEntity
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.entity.UserEntity
+import com.finance.domain.enum.CategoryLevel
 import com.finance.domain.enum.CategoryType
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
@@ -53,6 +54,17 @@ class ListResponsibleTransactionsUseCaseTest {
 
     @Test
     fun `should filter transactions strictly by tx date competence instead of invoice month and include category summary`() {
+        val catTransporte = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Transporte",
+            description = null,
+            userId = user.id,
+            groupId = null,
+            type = CategoryType.EXPENSE,
+            color = "#8E8EA0",
+            icon = "🚗",
+            level = CategoryLevel.GENERAL
+        )
         val catUber = CategoryEntity(
             id = UUID.randomUUID(),
             name = "Uber",
@@ -61,9 +73,12 @@ class ListResponsibleTransactionsUseCaseTest {
             groupId = null,
             type = CategoryType.EXPENSE,
             color = "#000000",
-            icon = "car"
+            icon = "car",
+            level = CategoryLevel.SPECIFIC,
+            parentId = catTransporte.id
         )
-        `when`(categoryRepository.findById(catUber.id)).thenReturn(catUber)
+        `when`(categoryRepository.findByIdIn(listOf(catUber.id))).thenReturn(listOf(catUber))
+        `when`(categoryRepository.findByIdIn(listOf(catTransporte.id))).thenReturn(listOf(catTransporte))
 
         // Compra no cartão realizada em 28 de outubro, cuja fatura é de novembro
         val txOct = TransactionEntity(
@@ -108,6 +123,9 @@ class ListResponsibleTransactionsUseCaseTest {
         assertNotNull(octList[0].category)
         assertEquals("Uber", octList[0].category?.name)
         assertEquals(catUber.id, octList[0].category?.id)
+        assertEquals(CategoryLevel.SPECIFIC, octList[0].category?.level)
+        assertEquals(catTransporte.id, octList[0].category?.parentId)
+        assertEquals("Transporte", octList[0].category?.parent?.name)
 
         // Quando filtrado por novembro de 2026 (month = 11, year = 2026)
         val novList = useCase.execute(user.id, month = 11, year = 2026)

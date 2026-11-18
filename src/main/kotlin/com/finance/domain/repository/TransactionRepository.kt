@@ -9,6 +9,9 @@ interface TransactionRepository {
     fun findById(id: UUID): TransactionEntity?
     fun findByAccountId(accountId: UUID): List<TransactionEntity>
     fun findByCategoryId(categoryId: UUID): List<TransactionEntity>
+    fun findByCategoryIdIn(categoryIds: Collection<UUID>): List<TransactionEntity>
+    fun clearCategoryId(categoryId: UUID)
+    fun reassignCategory(fromCategoryId: UUID, toCategoryId: UUID)
     fun findByDestinationAccountId(destinationAccountId: UUID): List<TransactionEntity>
     fun findByCreditCardId(creditCardId: UUID): List<TransactionEntity>
     fun findByCreditCardInvoiceId(creditCardInvoiceId: UUID): List<TransactionEntity>

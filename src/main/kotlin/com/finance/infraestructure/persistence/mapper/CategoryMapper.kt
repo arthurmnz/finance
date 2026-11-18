@@ -16,6 +16,11 @@ class CategoryMapper {
             type = jpaEntity.type,
             color = jpaEntity.color,
             icon = jpaEntity.icon,
+            level = jpaEntity.level,
+            parentId = jpaEntity.parentId,
+            systemKey = jpaEntity.systemKey,
+            isDefault = jpaEntity.isDefault,
+            hierarchyMigrated = jpaEntity.hierarchyMigrated,
             createdAt = jpaEntity.createdAt,
             updatedAt = jpaEntity.updatedAt
         )
@@ -31,6 +36,11 @@ class CategoryMapper {
             type = domainEntity.type,
             color = domainEntity.color,
             icon = domainEntity.icon,
+            level = domainEntity.level,
+            parentId = domainEntity.parentId,
+            systemKey = domainEntity.systemKey,
+            isDefault = domainEntity.isDefault,
+            hierarchyMigrated = domainEntity.hierarchyMigrated,
             createdAt = domainEntity.createdAt,
             updatedAt = domainEntity.updatedAt
         )

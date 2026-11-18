@@ -11,7 +11,8 @@ object TransactionDtoMapper {
     fun toResponse(
         entity: TransactionEntity,
         responsibleUser: UserEntity? = null,
-        category: CategoryEntity? = null
+        category: CategoryEntity? = null,
+        parentCategory: CategoryEntity? = null
     ): TransactionResponse {
         val summary = responsibleUser?.let {
             GroupUserSummary(
@@ -27,7 +28,10 @@ object TransactionDtoMapper {
                 name = it.name,
                 color = it.color,
                 icon = it.icon,
-                type = it.type
+                type = it.type,
+                level = it.level,
+                parentId = it.parentId,
+                parent = parentCategory?.let { parent -> CategoryDtoMapper.toParentSummary(parent) }
             )
         }
         return TransactionResponse(

@@ -4,6 +4,7 @@ import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.repository.TransactionRepository
 import com.finance.infraestructure.persistence.mapper.TransactionMapper
 import org.springframework.stereotype.Repository
+import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.UUID
@@ -34,6 +35,22 @@ class TransactionRepositoryImpl(
     override fun findByCategoryId(categoryId: UUID): List<TransactionEntity> {
         return springDataTransactionRepository.findByCategoryId(categoryId)
             .map { mapper.toDomain(it) }
+    }
+
+    override fun findByCategoryIdIn(categoryIds: Collection<UUID>): List<TransactionEntity> {
+        if (categoryIds.isEmpty()) return emptyList()
+        return springDataTransactionRepository.findByCategoryIdIn(categoryIds)
+            .map { mapper.toDomain(it) }
+    }
+
+    @Transactional
+    override fun clearCategoryId(categoryId: UUID) {
+        springDataTransactionRepository.clearCategoryId(categoryId)
+    }
+
+    @Transactional
+    override fun reassignCategory(fromCategoryId: UUID, toCategoryId: UUID) {
+        springDataTransactionRepository.reassignCategory(fromCategoryId, toCategoryId)
     }
 
     override fun findByDestinationAccountId(destinationAccountId: UUID): List<TransactionEntity> {

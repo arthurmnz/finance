@@ -1,6 +1,7 @@
 package com.finance.application.use_case.transaction
 
 import com.finance.application.dto.transaction.TransactionResponse
+import com.finance.application.mapper.CategoryBatchLoader
 import com.finance.application.mapper.TransactionDtoMapper
 import com.finance.domain.repository.CategoryRepository
 import com.finance.domain.repository.TransactionRepository
@@ -27,10 +28,14 @@ class ListResponsibleTransactionsUseCase(
         }
 
         val categoryIds = filtered.mapNotNull { it.categoryId }.distinct()
-        val categoryMap = categoryIds.mapNotNull { categoryRepository.findById(it) }.associateBy { it.id }
+        val (categoryMap, parentMap) = CategoryBatchLoader.loadWithParents(categoryRepository, categoryIds)
 
         return filtered
             .sortedByDescending { it.date }
-            .map { TransactionDtoMapper.toResponse(it, user, categoryMap[it.categoryId]) }
+            .map { tx ->
+                val cat = categoryMap[tx.categoryId]
+                val parent = cat?.parentId?.let { parentMap[it] }
+                TransactionDtoMapper.toResponse(tx, user, cat, parent)
+            }
     }
 }

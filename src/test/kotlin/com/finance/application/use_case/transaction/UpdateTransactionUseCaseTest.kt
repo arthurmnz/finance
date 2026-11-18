@@ -2,9 +2,12 @@ package com.finance.application.use_case.transaction
 
 import com.finance.application.dto.transaction.UpdateTransactionRequest
 import com.finance.domain.entity.AccountEntity
+import com.finance.domain.entity.CategoryEntity
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.entity.UserEntity
 import com.finance.domain.enum.AccountType
+import com.finance.domain.enum.CategoryLevel
+import com.finance.domain.enum.CategoryType
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.InvalidTransactionException
@@ -26,7 +29,9 @@ import org.mockito.Mockito.`when`
 import org.mockito.Mockito.mock
 import java.time.LocalDate
 import java.util.UUID
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class UpdateTransactionUseCaseTest {
@@ -279,5 +284,147 @@ class UpdateTransactionUseCaseTest {
                 )
             )
         }
+    }
+
+    @Test
+    fun `should reject GENERAL or incompatible category on update and enrich parent when valid SPECIFIC`() {
+        val userA = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val accA = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userA.id,
+            name = "Conta Arthur",
+            startBalance = 50000,
+            balance = 45000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = null
+        )
+        val generalMoradia = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Moradia",
+            description = null,
+            userId = userA.id,
+            groupId = null,
+            type = CategoryType.EXPENSE,
+            color = "#7D39EB",
+            icon = "🏠",
+            level = CategoryLevel.GENERAL
+        )
+        val specificAluguel = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Aluguel",
+            description = null,
+            userId = userA.id,
+            groupId = null,
+            type = CategoryType.EXPENSE,
+            color = "#7D39EB",
+            icon = "🔑",
+            level = CategoryLevel.SPECIFIC,
+            parentId = generalMoradia.id
+        )
+        val generalRenda = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Renda",
+            description = null,
+            userId = userA.id,
+            groupId = null,
+            type = CategoryType.INCOME,
+            color = "#C6FF33",
+            icon = "💰",
+            level = CategoryLevel.GENERAL
+        )
+        val specificSalario = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Salário",
+            description = null,
+            userId = userA.id,
+            groupId = null,
+            type = CategoryType.INCOME,
+            color = "#C6FF33",
+            icon = "💼",
+            level = CategoryLevel.SPECIFIC,
+            parentId = generalRenda.id
+        )
+
+        val tx = TransactionEntity(
+            title = "Pagamento",
+            amount = 5000,
+            date = LocalDate.of(2026, 11, 5),
+            responsibleId = userA.id,
+            accountId = accA.id,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED
+        )
+
+        `when`(transactionRepository.findById(tx.id)).thenReturn(tx)
+        `when`(accountRepository.findById(accA.id)).thenReturn(accA)
+        `when`(userRepository.findById(userA.id)).thenReturn(userA)
+        `when`(categoryRepository.findById(generalMoradia.id)).thenReturn(generalMoradia)
+        `when`(categoryRepository.findById(specificAluguel.id)).thenReturn(specificAluguel)
+        `when`(categoryRepository.findById(specificSalario.id)).thenReturn(specificSalario)
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        // Reject GENERAL
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userA.id,
+                tx.id,
+                UpdateTransactionRequest(
+                    title = "Pagamento",
+                    amount = 5000,
+                    date = LocalDate.of(2026, 11, 5),
+                    categoryId = generalMoradia.id,
+                    status = TransactionStatus.COMPLETED
+                )
+            )
+        }
+
+        // Reject incompatible INCOME category on EXPENSE
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userA.id,
+                tx.id,
+                UpdateTransactionRequest(
+                    title = "Pagamento",
+                    amount = 5000,
+                    date = LocalDate.of(2026, 11, 5),
+                    categoryId = specificSalario.id,
+                    status = TransactionStatus.COMPLETED
+                )
+            )
+        }
+
+        // Accept valid SPECIFIC and return parent summary
+        val updated = useCase.execute(
+            userA.id,
+            tx.id,
+            UpdateTransactionRequest(
+                title = "Aluguel Novembro",
+                amount = 5000,
+                date = LocalDate.of(2026, 11, 5),
+                categoryId = specificAluguel.id,
+                status = TransactionStatus.COMPLETED
+            )
+        )
+        assertEquals(specificAluguel.id, updated.categoryId)
+        assertEquals("Aluguel", updated.category?.name)
+        assertEquals("Moradia", updated.category?.parent?.name)
+
+        // Clear categoryId when updated with null
+        val cleared = useCase.execute(
+            userA.id,
+            tx.id,
+            UpdateTransactionRequest(
+                title = "Sem categoria",
+                amount = 5000,
+                date = LocalDate.of(2026, 11, 5),
+                categoryId = null,
+                status = TransactionStatus.COMPLETED
+            )
+        )
+        assertNull(cleared.categoryId)
+        assertNull(cleared.category)
     }
 }

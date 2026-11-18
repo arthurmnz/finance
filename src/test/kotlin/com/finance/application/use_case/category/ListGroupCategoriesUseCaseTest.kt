@@ -4,6 +4,7 @@ import com.finance.domain.entity.CategoryEntity
 import com.finance.domain.entity.CreditCardEntity
 import com.finance.domain.entity.GroupEntity
 import com.finance.domain.entity.TransactionEntity
+import com.finance.domain.enum.CategoryLevel
 import com.finance.domain.enum.CategoryType
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
@@ -23,6 +24,7 @@ import org.mockito.Mockito.mock
 import java.time.LocalDate
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class ListGroupCategoriesUseCaseTest {
@@ -55,7 +57,7 @@ class ListGroupCategoriesUseCaseTest {
     }
 
     @Test
-    fun `should return explicit group categories plus personal categories used in group accounts and credit cards when user is member`() {
+    fun `should return explicit group categories plus personal specific categories and their general parents`() {
         val groupId = UUID.randomUUID()
         val userAId = UUID.randomUUID()
         val userBId = UUID.randomUUID()
@@ -64,7 +66,17 @@ class ListGroupCategoriesUseCaseTest {
         `when`(groupRepository.findById(groupId)).thenReturn(group)
         `when`(groupMemberRepository.existsByGroupIdAndUserId(groupId, userBId)).thenReturn(true)
 
-        // Categoria explícita do grupo
+        val catMoradiaGrupo = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Moradia",
+            description = null,
+            userId = null,
+            groupId = groupId,
+            type = CategoryType.EXPENSE,
+            color = "#7D39EB",
+            icon = "🏠",
+            level = CategoryLevel.GENERAL
+        )
         val catCondo = CategoryEntity(
             id = UUID.randomUUID(),
             name = "Condomínio",
@@ -73,11 +85,12 @@ class ListGroupCategoriesUseCaseTest {
             groupId = groupId,
             type = CategoryType.EXPENSE,
             color = "#00FF00",
-            icon = "home"
+            icon = "🏢",
+            level = CategoryLevel.SPECIFIC,
+            parentId = catMoradiaGrupo.id
         )
-        `when`(categoryRepository.findByGroupId(groupId)).thenReturn(listOf(catCondo))
+        `when`(categoryRepository.findByGroupId(groupId)).thenReturn(listOf(catMoradiaGrupo, catCondo))
 
-        // Cartão de crédito do grupo
         val card = CreditCardEntity(
             id = UUID.randomUUID(),
             ownerId = userAId,
@@ -91,7 +104,28 @@ class ListGroupCategoriesUseCaseTest {
         `when`(creditCardRepository.findAllByGroupId(groupId)).thenReturn(listOf(card))
         `when`(accountRepository.findAllByGroupId(groupId)).thenReturn(emptyList())
 
-        // Categoria pessoal de User B: "Uber" e "iFood"
+        val catTransporte = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Transporte",
+            description = null,
+            userId = userBId,
+            groupId = null,
+            type = CategoryType.EXPENSE,
+            color = "#8E8EA0",
+            icon = "🚗",
+            level = CategoryLevel.GENERAL
+        )
+        val catAlimentacao = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Alimentação",
+            description = null,
+            userId = userBId,
+            groupId = null,
+            type = CategoryType.EXPENSE,
+            color = "#E4FF8F",
+            icon = "🍽️",
+            level = CategoryLevel.GENERAL
+        )
         val catUber = CategoryEntity(
             id = UUID.randomUUID(),
             name = "Uber",
@@ -100,7 +134,9 @@ class ListGroupCategoriesUseCaseTest {
             groupId = null,
             type = CategoryType.EXPENSE,
             color = "#000000",
-            icon = "car"
+            icon = "🚕",
+            level = CategoryLevel.SPECIFIC,
+            parentId = catTransporte.id
         )
         val catIfood = CategoryEntity(
             id = UUID.randomUUID(),
@@ -110,12 +146,16 @@ class ListGroupCategoriesUseCaseTest {
             groupId = null,
             type = CategoryType.EXPENSE,
             color = "#EA1D2C",
-            icon = "food"
+            icon = "🛵",
+            level = CategoryLevel.SPECIFIC,
+            parentId = catAlimentacao.id
         )
-        `when`(categoryRepository.findById(catUber.id)).thenReturn(catUber)
-        `when`(categoryRepository.findById(catIfood.id)).thenReturn(catIfood)
 
-        // Compras de User B no cartão do grupo usando as categorias pessoais
+        `when`(categoryRepository.findByIdIn(listOf(catUber.id, catIfood.id))).thenReturn(listOf(catUber, catIfood))
+        `when`(categoryRepository.findByIdIn(listOf(catIfood.id, catUber.id))).thenReturn(listOf(catUber, catIfood))
+        `when`(categoryRepository.findByIdIn(listOf(catTransporte.id, catAlimentacao.id))).thenReturn(listOf(catTransporte, catAlimentacao))
+        `when`(categoryRepository.findByIdIn(listOf(catAlimentacao.id, catTransporte.id))).thenReturn(listOf(catTransporte, catAlimentacao))
+
         val tx1 = TransactionEntity(
             title = "Corrida",
             amount = 3000,
@@ -144,12 +184,27 @@ class ListGroupCategoriesUseCaseTest {
 
         val result = useCase.execute(groupId, userBId)
 
-        // Deve retornar 3 categorias: Condomínio, iFood, Uber
-        assertEquals(3, result.size)
+        // Deve incluir: Moradia (grupo), Condomínio (grupo), Uber (pessoal), iFood (pessoal),
+        // Transporte (pai pessoal incluído) e Alimentação (pai pessoal incluído)
+        assertEquals(6, result.size)
         val names = result.map { it.name }
-        assertTrue(names.contains("Condomínio"))
-        assertTrue(names.contains("Uber"))
-        assertTrue(names.contains("iFood"))
+        assertTrue(names.containsAll(listOf("Moradia", "Condomínio", "Uber", "iFood", "Transporte", "Alimentação")))
+
+        val uberDto = result.first { it.id == catUber.id }
+        assertEquals(CategoryLevel.SPECIFIC, uberDto.level)
+        assertEquals(catTransporte.id, uberDto.parentId)
+        assertNotNull(uberDto.parent)
+        assertEquals("Transporte", uberDto.parent.name)
+
+        // Filtro por level = GENERAL deve incluir os pais pessoais também
+        val generalsOnly = useCase.execute(groupId, userBId, level = CategoryLevel.GENERAL)
+        assertEquals(3, generalsOnly.size)
+        assertTrue(generalsOnly.map { it.name }.containsAll(listOf("Moradia", "Transporte", "Alimentação")))
+
+        // Filtro por parentId = catTransporte.id
+        val transporteChildren = useCase.execute(groupId, userBId, parentId = catTransporte.id)
+        assertEquals(1, transporteChildren.size)
+        assertEquals("Uber", transporteChildren[0].name)
     }
 
     @Test

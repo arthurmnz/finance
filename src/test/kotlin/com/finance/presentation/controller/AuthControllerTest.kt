@@ -3,6 +3,7 @@ package com.finance.presentation.controller
 import com.finance.application.dto.auth.LoginRequest
 import com.finance.application.dto.auth.RegisterUserRequest
 import com.finance.application.mapper.UserDtoMapper
+import com.finance.application.service.CategorySeedService
 import com.finance.application.service.InMemoryUserRepository
 import com.finance.application.service.UserService
 import com.finance.application.use_case.auth.FakeEmailSender
@@ -29,6 +30,7 @@ import com.finance.presentation.util.AuthCookieUtil
 import jakarta.servlet.http.Cookie
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.mockito.Mockito.mock
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.post
@@ -70,7 +72,8 @@ class AuthControllerTest {
             userRepository = userRepository,
             userService = userService,
             passwordEncoder = passwordEncoder,
-            userDtoMapper = userDtoMapper
+            userDtoMapper = userDtoMapper,
+            categorySeedService = mock(CategorySeedService::class.java)
         )
 
         val loginUseCase = LoginUseCase(

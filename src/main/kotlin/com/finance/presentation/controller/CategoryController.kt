@@ -7,8 +7,10 @@ import com.finance.application.use_case.category.CreateCategoryUseCase
 import com.finance.application.use_case.category.DeleteCategoryUseCase
 import com.finance.application.use_case.category.ListGroupCategoriesUseCase
 import com.finance.application.use_case.category.ListUserCategoriesUseCase
+import com.finance.application.use_case.category.SeedDefaultCategoriesUseCase
 import com.finance.application.use_case.category.UpdateCategoryUseCase
 import com.finance.domain.entity.UserEntity
+import com.finance.domain.enum.CategoryLevel
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.tags.Tag
 import org.springframework.http.HttpStatus
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.util.UUID
 
@@ -32,7 +35,8 @@ class CategoryController(
     private val updateCategoryUseCase: UpdateCategoryUseCase,
     private val deleteCategoryUseCase: DeleteCategoryUseCase,
     private val listUserCategoriesUseCase: ListUserCategoriesUseCase,
-    private val listGroupCategoriesUseCase: ListGroupCategoriesUseCase
+    private val listGroupCategoriesUseCase: ListGroupCategoriesUseCase,
+    private val seedDefaultCategoriesUseCase: SeedDefaultCategoriesUseCase
 ) {
 
     @PostMapping
@@ -69,9 +73,11 @@ class CategoryController(
     @GetMapping("/me")
     @Operation(summary = "Listar minhas categorias")
     fun listMyCategories(
+        @RequestParam(required = false) level: CategoryLevel? = null,
+        @RequestParam(required = false) parentId: UUID? = null,
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<List<CategoryResponse>> {
-        val response = listUserCategoriesUseCase.execute(authenticatedUser.id)
+        val response = listUserCategoriesUseCase.execute(authenticatedUser.id, level, parentId)
         return ResponseEntity.ok(response)
     }
 
@@ -79,9 +85,30 @@ class CategoryController(
     @Operation(summary = "Listar categorias do grupo")
     fun listGroupCategories(
         @PathVariable groupId: UUID,
+        @RequestParam(required = false) level: CategoryLevel? = null,
+        @RequestParam(required = false) parentId: UUID? = null,
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<List<CategoryResponse>> {
-        val response = listGroupCategoriesUseCase.execute(groupId, authenticatedUser.id)
+        val response = listGroupCategoriesUseCase.execute(groupId, authenticatedUser.id, level, parentId)
+        return ResponseEntity.ok(response)
+    }
+
+    @PostMapping("/me/seed-defaults")
+    @Operation(summary = "Restaurar categorias padrão faltantes do usuário autenticado")
+    fun seedMyDefaults(
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<List<CategoryResponse>> {
+        val response = seedDefaultCategoriesUseCase.seedForUser(authenticatedUser.id)
+        return ResponseEntity.ok(response)
+    }
+
+    @PostMapping("/group/{groupId}/seed-defaults")
+    @Operation(summary = "Criar ou restaurar categorias padrão do grupo")
+    fun seedGroupDefaults(
+        @PathVariable groupId: UUID,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<List<CategoryResponse>> {
+        val response = seedDefaultCategoriesUseCase.seedForGroup(groupId, authenticatedUser.id)
         return ResponseEntity.ok(response)
     }
 }

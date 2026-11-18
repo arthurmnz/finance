@@ -1,5 +1,6 @@
 package com.finance.infraestructure.persistence.entity
 
+import com.finance.domain.enum.CategoryLevel
 import com.finance.domain.enum.CategoryType
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
@@ -38,6 +39,22 @@ class CategoryJpaEntity(
 
     @Column(name = "icon", length = 50)
     var icon: String?,
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "level", nullable = false, length = 20, columnDefinition = "varchar(20) default 'GENERAL'")
+    var level: CategoryLevel = CategoryLevel.GENERAL,
+
+    @Column(name = "parent_id")
+    var parentId: UUID? = null,
+
+    @Column(name = "system_key", length = 80)
+    var systemKey: String? = null,
+
+    @Column(name = "is_default", nullable = false, columnDefinition = "boolean default false")
+    var isDefault: Boolean = false,
+
+    @Column(name = "hierarchy_migrated", nullable = false, columnDefinition = "boolean default false")
+    var hierarchyMigrated: Boolean = true,
 
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: LocalDateTime = LocalDateTime.now(),

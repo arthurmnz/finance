@@ -3,6 +3,7 @@ package com.finance.application.use_case.transaction
 import com.finance.application.dto.transaction.TransactionResponse
 import com.finance.application.dto.transaction.UpdateTransactionRequest
 import com.finance.application.mapper.TransactionDtoMapper
+import com.finance.application.service.TransactionCategoryValidator
 import com.finance.domain.entity.CreditCardInvoiceEntity
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.enum.RecurrenceFrequency
@@ -10,7 +11,6 @@ import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccessDeniedException
 import com.finance.domain.exception.AccountNotFoundException
-import com.finance.domain.exception.CategoryNotFoundException
 import com.finance.domain.exception.InvalidTransactionException
 import com.finance.domain.exception.TransactionNotFoundException
 import com.finance.domain.exception.UnauthorizedException
@@ -75,15 +75,29 @@ class UpdateTransactionUseCase(
             }
         }
 
-        if (request.categoryId != null) {
-            val category = categoryRepository.findById(request.categoryId)
-                ?: throw CategoryNotFoundException("Categoria não encontrada")
-            if (category.userId != null && category.userId != userId) {
-                throw AccessDeniedException("Você não tem permissão para usar uma categoria pessoal de outro usuário.")
+        val validatedCategory = request.categoryId?.let { catId ->
+            val cat = TransactionCategoryValidator.validateForTransaction(
+                categoryRepository = categoryRepository,
+                groupMemberRepository = groupMemberRepository,
+                categoryId = catId,
+                userId = userId,
+                transactionType = transaction.type
+            )
+            if (cat.groupId != null) {
+                val involvedGroupIds = buildList {
+                    val cardId = transaction.creditCardId
+                    if (cardId != null) {
+                        add(creditCardRepository.findById(cardId)?.groupId)
+                    } else {
+                        add(accountRepository.findById(transaction.accountId)?.groupId)
+                        if (transaction.type == TransactionType.TRANSFER) {
+                            add(transaction.destinationAccountId?.let { accountRepository.findById(it)?.groupId })
+                        }
+                    }
+                }
+                TransactionCategoryValidator.validateGroupScope(cat, involvedGroupIds)
             }
-            if (category.groupId != null && !groupMemberRepository.existsByGroupIdAndUserId(category.groupId!!, userId)) {
-                throw AccessDeniedException("Você não tem permissão para usar categorias de um grupo do qual não é membro.")
-            }
+            cat
         }
 
         val transactionsToUpdate = mutableListOf(transaction)
@@ -201,10 +215,12 @@ class UpdateTransactionUseCase(
         }
 
         val responsible = userRepository.findById(userId)
-        val finalCategoryId = request.categoryId ?: transaction.categoryId
-        val targetCategory = finalCategoryId?.let { categoryRepository.findById(it) }
+        val targetCategory = validatedCategory
+        val targetParentCategory = targetCategory?.parentId?.let { categoryRepository.findById(it) }
         val savedTransactions = transactionRepository.saveAll(transactionsToUpdate)
-        val responseList = savedTransactions.map { TransactionDtoMapper.toResponse(it, responsible, targetCategory) }.toMutableList()
+        val responseList = savedTransactions.map {
+            TransactionDtoMapper.toResponse(it, responsible, targetCategory, targetParentCategory)
+        }.toMutableList()
 
         if (shouldRegenerateFutures && request.isRecurring == true) {
             var currentDate = request.date
@@ -237,7 +253,9 @@ class UpdateTransactionUseCase(
             }
             if (newlyGenerated.isNotEmpty()) {
                 val savedNewFutures = transactionRepository.saveAll(newlyGenerated)
-                responseList.addAll(savedNewFutures.map { TransactionDtoMapper.toResponse(it, responsible, targetCategory) })
+                responseList.addAll(savedNewFutures.map {
+                    TransactionDtoMapper.toResponse(it, responsible, targetCategory, targetParentCategory)
+                })
             }
         }
 
