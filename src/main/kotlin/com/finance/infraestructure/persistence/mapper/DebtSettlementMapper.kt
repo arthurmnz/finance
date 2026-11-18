@@ -18,6 +18,7 @@ class DebtSettlementMapper {
             date = entity.date,
             transactionId = entity.transactionId,
             notes = entity.notes,
+            isForgiveness = entity.isForgiveness,
             createdAt = entity.createdAt,
             updatedAt = entity.updatedAt
         )
@@ -34,6 +35,7 @@ class DebtSettlementMapper {
             date = domain.date,
             transactionId = domain.transactionId,
             notes = domain.notes,
+            isForgiveness = domain.isForgiveness,
             createdAt = domain.createdAt,
             updatedAt = domain.updatedAt
         )

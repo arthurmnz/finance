@@ -18,6 +18,7 @@ data class DebtSettlementResponse(
     val date: LocalDate,
     val transactionId: UUID?,
     val notes: String?,
+    val isForgiveness: Boolean = false,
     val createdAt: LocalDateTime
 )
 
@@ -28,6 +29,14 @@ data class SettleDebtRequest(
     val targetYear: Int,
     val sourceAccountId: UUID,
     val destinationAccountId: UUID,
+    val notes: String? = null
+)
+
+data class ForgiveDebtRequest(
+    val debtorId: UUID,
+    val amount: Int,
+    val targetMonth: Int,
+    val targetYear: Int,
     val notes: String? = null
 )
 

@@ -32,6 +32,7 @@ data class TransactionResponse(
     val invoiceYear: Int? = null,
     val installmentNumber: Int? = null,
     val totalInstallments: Int? = null,
+    val generatesDebt: Boolean = false,
     val createdAt: LocalDateTime,
     val updatedAt: LocalDateTime
 )

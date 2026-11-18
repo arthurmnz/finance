@@ -38,7 +38,8 @@ data class CreateTransactionRequest(
      * Lista opcional de rateio entre múltiplas contas (máximo de 10 contas distintas).
      * Permitido apenas para EXPENSE e INCOME em contas bancárias.
      */
-    val splits: List<AccountSplitRequest>? = null
+    val splits: List<AccountSplitRequest>? = null,
+    val generatesDebt: Boolean = false
 )
 
 data class UpdateTransactionRequest(
@@ -54,5 +55,6 @@ data class UpdateTransactionRequest(
     val recurrenceInstallments: Int? = null,
     val isInfinite: Boolean? = null,
     val invoiceMonth: Int? = null,
-    val invoiceYear: Int? = null
+    val invoiceYear: Int? = null,
+    val generatesDebt: Boolean? = null
 )

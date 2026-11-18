@@ -1,5 +1,6 @@
 package com.finance.domain.entity
 
+import com.finance.domain.exception.InvalidTransactionException
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.UUID
@@ -15,6 +16,7 @@ class DebtSettlementEntity(
     val date: LocalDate = LocalDate.now(),
     val transactionId: UUID? = null,
     notes: String? = null,
+    val isForgiveness: Boolean = false,
     val createdAt: LocalDateTime = LocalDateTime.now(),
     updatedAt: LocalDateTime = LocalDateTime.now()
 ) {
@@ -37,6 +39,9 @@ class DebtSettlementEntity(
         require(amount > 0) { "O valor do acerto deve ser maior que zero." }
         require(debtorId != creditorId) { "O devedor e o credor não podem ser a mesma pessoa." }
         require(targetMonth in 1..12) { "Mês alvo inválido." }
+        if (targetYear !in 1970..2100) {
+            throw InvalidTransactionException("Ano de referência inválido.")
+        }
     }
 
     constructor(
@@ -48,7 +53,8 @@ class DebtSettlementEntity(
         targetYear: Int,
         date: LocalDate = LocalDate.now(),
         transactionId: UUID? = null,
-        notes: String? = null
+        notes: String? = null,
+        isForgiveness: Boolean = false
     ) : this(
         id = UUID.randomUUID(),
         groupId = groupId,
@@ -60,6 +66,7 @@ class DebtSettlementEntity(
         date = date,
         transactionId = transactionId,
         notes = notes,
+        isForgiveness = isForgiveness,
         createdAt = LocalDateTime.now(),
         updatedAt = LocalDateTime.now()
     )

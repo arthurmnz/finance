@@ -8,11 +8,14 @@ import com.finance.application.dto.group.MemberDebtDetailResponse
 import com.finance.application.dto.group.PairDebtBalanceResponse
 import com.finance.application.dto.transaction.TransactionResponse
 import com.finance.application.mapper.TransactionDtoMapper
+import com.finance.domain.entity.AccountEntity
 import com.finance.domain.entity.CategoryEntity
 import com.finance.domain.entity.TransactionEntity
+import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccessDeniedException
 import com.finance.domain.exception.GroupNotFoundException
+import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.CategoryRepository
 import com.finance.domain.repository.CreditCardRepository
 import com.finance.domain.repository.DebtSettlementRepository
@@ -30,12 +33,13 @@ class CalculateGroupDebtsUseCase(
     private val groupRepository: GroupRepository,
     private val groupMemberRepository: GroupMemberRepository,
     private val creditCardRepository: CreditCardRepository,
+    private val accountRepository: AccountRepository,
     private val transactionRepository: TransactionRepository,
     private val debtSettlementRepository: DebtSettlementRepository,
     private val userRepository: UserRepository,
     private val categoryRepository: CategoryRepository
 ) {
-    private data class CardPurchaseItem(
+    private data class DebtItem(
         val debtorId: UUID,
         val creditorId: UUID,
         val ym: YearMonth,
@@ -65,7 +69,7 @@ class CalculateGroupDebtsUseCase(
         val cards = creditCardRepository.findAllByGroupId(groupId)
         val settlements = debtSettlementRepository.findByGroupId(groupId)
 
-        val purchases = mutableListOf<CardPurchaseItem>()
+        val purchases = mutableListOf<DebtItem>()
         val allYms = mutableSetOf<YearMonth>()
         allYms.add(YearMonth.now())
 
@@ -83,7 +87,7 @@ class CalculateGroupDebtsUseCase(
                     val signed = if (tx.type == TransactionType.INCOME) -tx.amount else tx.amount
                     val resp = TransactionDtoMapper.toResponse(tx, users[tx.responsibleId], getCategory(tx.categoryId))
                     purchases.add(
-                        CardPurchaseItem(
+                        DebtItem(
                             debtorId = tx.responsibleId,
                             creditorId = card.ownerId,
                             ym = ym,
@@ -93,6 +97,51 @@ class CalculateGroupDebtsUseCase(
                         )
                     )
                 }
+            }
+        }
+
+        val groupAccounts = accountRepository.findAllByGroupId(groupId)
+        val accountsCache: MutableMap<UUID, AccountEntity?> = groupAccounts.associateByTo(mutableMapOf()) { it.id }
+        fun resolveAccount(accId: UUID): AccountEntity? =
+            if (accountsCache.containsKey(accId)) accountsCache[accId]
+            else accountRepository.findById(accId).also { accountsCache[accId] = it }
+
+        val groupAccountTxs = (
+            groupAccounts.flatMap { transactionRepository.findByAccountId(it.id) } +
+            groupAccounts.flatMap { transactionRepository.findByDestinationAccountId(it.id) }
+        ).distinctBy { it.id }
+
+        for (tx in groupAccountTxs) {
+            val destAccId = tx.destinationAccountId
+            if (
+                tx.type == TransactionType.TRANSFER &&
+                tx.generatesDebt &&
+                tx.creditCardId == null &&
+                tx.status == TransactionStatus.COMPLETED &&
+                destAccId != null
+            ) {
+                val sourceAcc = resolveAccount(tx.accountId) ?: continue
+                val destAcc = resolveAccount(destAccId) ?: continue
+                if (sourceAcc.ownerId == destAcc.ownerId) continue
+                val targetGroupId = destAcc.groupId ?: sourceAcc.groupId
+                if (targetGroupId != groupId) continue
+                if (!groupMemberRepository.existsByGroupIdAndUserId(groupId, sourceAcc.ownerId) ||
+                    !groupMemberRepository.existsByGroupIdAndUserId(groupId, destAcc.ownerId)
+                ) continue
+
+                val ym = YearMonth.from(tx.date)
+                allYms.add(ym)
+                val resp = TransactionDtoMapper.toResponse(tx, users[tx.responsibleId], getCategory(tx.categoryId))
+                purchases.add(
+                    DebtItem(
+                        debtorId = destAcc.ownerId,
+                        creditorId = sourceAcc.ownerId,
+                        ym = ym,
+                        signedAmount = tx.amount,
+                        tx = tx,
+                        txResponse = resp
+                    )
+                )
             }
         }
 
@@ -211,6 +260,7 @@ class CalculateGroupDebtsUseCase(
                 date = s.date,
                 transactionId = s.transactionId,
                 notes = s.notes,
+                isForgiveness = s.isForgiveness,
                 createdAt = s.createdAt
             )
         }.sortedByDescending { it.createdAt }

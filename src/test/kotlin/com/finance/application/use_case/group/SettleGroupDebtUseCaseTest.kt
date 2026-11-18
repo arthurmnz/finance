@@ -2,11 +2,13 @@ package com.finance.application.use_case.group
 
 import com.finance.application.dto.group.SettleDebtRequest
 import com.finance.domain.entity.AccountEntity
+import com.finance.domain.entity.DebtSettlementEntity
 import com.finance.domain.entity.GroupEntity
 import com.finance.domain.entity.UserEntity
 import com.finance.domain.enum.AccountType
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccessDeniedException
+import com.finance.domain.exception.InvalidTransactionException
 import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.DebtSettlementRepository
 import com.finance.domain.repository.GroupMemberRepository
@@ -25,6 +27,7 @@ import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 
 class SettleGroupDebtUseCaseTest {
@@ -112,6 +115,7 @@ class SettleGroupDebtUseCaseTest {
         assertEquals(userB.id, response.creditorId)
         assertEquals(11, response.targetMonth)
         assertEquals(2026, response.targetYear)
+        assertFalse(response.isForgiveness)
 
         // Saldos devem ter sido atualizados
         assertEquals(80000, sourceAccount.balance)
@@ -162,6 +166,75 @@ class SettleGroupDebtUseCaseTest {
 
         assertThrows<AccessDeniedException> {
             useCase.execute(group.id, userA.id, request)
+        }
+    }
+
+    @Test
+    fun `should fail if notes exceed 500 characters`() {
+        val userA = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val userB = UserEntity(Name("Maria"), Name("Silva"), Email("maria@finance.com"), PasswordHash("hash"))
+        val group = GroupEntity(id = UUID.randomUUID(), name = "Família")
+
+        val request = SettleDebtRequest(
+            creditorId = userB.id,
+            amount = 20000,
+            targetMonth = 11,
+            targetYear = 2026,
+            sourceAccountId = UUID.randomUUID(),
+            destinationAccountId = UUID.randomUUID(),
+            notes = "a".repeat(501)
+        )
+
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(group.id, userA.id, request)
+        }
+    }
+
+    @Test
+    fun `should fail if targetYear is outside 1970 to 2100`() {
+        val userA = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val userB = UserEntity(Name("Maria"), Name("Silva"), Email("maria@finance.com"), PasswordHash("hash"))
+        val group = GroupEntity(id = UUID.randomUUID(), name = "Família")
+
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                group.id,
+                userA.id,
+                SettleDebtRequest(
+                    creditorId = userB.id,
+                    amount = 20000,
+                    targetMonth = 11,
+                    targetYear = 1969,
+                    sourceAccountId = UUID.randomUUID(),
+                    destinationAccountId = UUID.randomUUID()
+                )
+            )
+        }
+
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                group.id,
+                userA.id,
+                SettleDebtRequest(
+                    creditorId = userB.id,
+                    amount = 20000,
+                    targetMonth = 11,
+                    targetYear = 2101,
+                    sourceAccountId = UUID.randomUUID(),
+                    destinationAccountId = UUID.randomUUID()
+                )
+            )
+        }
+
+        assertThrows<InvalidTransactionException> {
+            DebtSettlementEntity(
+                groupId = group.id,
+                debtorId = userA.id,
+                creditorId = userB.id,
+                amount = 20000,
+                targetMonth = 11,
+                targetYear = 1800
+            )
         }
     }
 }

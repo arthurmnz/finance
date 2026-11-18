@@ -11,6 +11,7 @@ import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccessDeniedException
 import com.finance.domain.exception.AccountNotFoundException
 import com.finance.domain.exception.CategoryNotFoundException
+import com.finance.domain.exception.InvalidTransactionException
 import com.finance.domain.exception.TransactionNotFoundException
 import com.finance.domain.exception.UnauthorizedException
 import com.finance.domain.repository.AccountRepository
@@ -37,11 +38,41 @@ class UpdateTransactionUseCase(
 ) {
     @Transactional
     fun execute(userId: UUID, transactionId: UUID, request: UpdateTransactionRequest): TransactionResponse {
+        if (request.amount <= 0) {
+            throw InvalidTransactionException("O valor da transação deve ser maior que zero.")
+        }
+
         val transaction = transactionRepository.findById(transactionId)
             ?: throw TransactionNotFoundException()
 
         if (transaction.responsibleId != userId) {
             throw UnauthorizedException("You can only edit transactions you created")
+        }
+
+        val effectiveGeneratesDebt = request.generatesDebt ?: transaction.generatesDebt
+        if (effectiveGeneratesDebt) {
+            if (transaction.type != TransactionType.TRANSFER || transaction.creditCardId != null) {
+                throw InvalidTransactionException("Apenas transferências bancárias podem gerar saldo devedor.")
+            }
+            val sourceAccount = accountRepository.findById(transaction.accountId)
+                ?: throw AccountNotFoundException("Conta não encontrada")
+            val destId = transaction.destinationAccountId
+                ?: throw InvalidTransactionException("Conta de destino é obrigatória para transferências.")
+            val destAccount = accountRepository.findById(destId)
+                ?: throw AccountNotFoundException("Destinatario não encontrado")
+            if (sourceAccount.ownerId != userId) {
+                throw AccessDeniedException("Apenas o titular da conta de origem pode registrar a transferência como dívida.")
+            }
+            if (sourceAccount.ownerId == destAccount.ownerId) {
+                throw InvalidTransactionException("A transferência deve ser entre pessoas distintas para gerar saldo devedor.")
+            }
+            val sharedGroupId = destAccount.groupId ?: sourceAccount.groupId
+            val bothInSharedGroup = sharedGroupId != null &&
+                groupMemberRepository.existsByGroupIdAndUserId(sharedGroupId, sourceAccount.ownerId) &&
+                groupMemberRepository.existsByGroupIdAndUserId(sharedGroupId, destAccount.ownerId)
+            if (!bothInSharedGroup) {
+                throw InvalidTransactionException("As contas da transferência devem estar vinculadas a um grupo em comum entre os dois usuários para gerar saldo devedor.")
+            }
         }
 
         if (request.categoryId != null) {
@@ -116,6 +147,7 @@ class UpdateTransactionUseCase(
 
                 val targetStatus = if (tx.id == transactionId) request.status else tx.status
                 val targetDate = if (tx.id == transactionId) request.date else tx.date
+                val targetGeneratesDebt = request.generatesDebt ?: tx.generatesDebt
                 val oldStatus = tx.status
                 val oldAmount = tx.amount
                 val invoice = findInvoiceForPaymentTx(tx)
@@ -125,7 +157,8 @@ class UpdateTransactionUseCase(
                     newAmount = request.amount,
                     newDate = targetDate,
                     newCategoryId = request.categoryId,
-                    newStatus = targetStatus
+                    newStatus = targetStatus,
+                    newGeneratesDebt = targetGeneratesDebt
                 )
 
                 if (invoice != null) {
@@ -197,7 +230,8 @@ class UpdateTransactionUseCase(
                     recurrenceFrequency = freq,
                     recurrenceInterval = interval,
                     isInfinite = isInf,
-                    creditCardId = transaction.creditCardId
+                    creditCardId = transaction.creditCardId,
+                    generatesDebt = request.generatesDebt ?: transaction.generatesDebt
                 )
                 newlyGenerated.add(newTx)
             }

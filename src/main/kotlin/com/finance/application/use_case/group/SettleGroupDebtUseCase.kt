@@ -42,6 +42,14 @@ class SettleGroupDebtUseCase(
         if (request.targetMonth !in 1..12) {
             throw InvalidTransactionException("Mês alvo inválido.")
         }
+        if (request.targetYear !in 1970..2100) {
+            throw InvalidTransactionException("Ano de referência inválido.")
+        }
+
+        val cleanNotes = request.notes?.trim()?.takeIf { it.isNotEmpty() }
+        if (cleanNotes != null && cleanNotes.length > 500) {
+            throw InvalidTransactionException("A observação deve ter no máximo 500 caracteres.")
+        }
 
         val group = groupRepository.findById(groupId) ?: throw GroupNotFoundException()
 
@@ -91,7 +99,7 @@ class SettleGroupDebtUseCase(
             targetYear = request.targetYear,
             date = LocalDate.now(),
             transactionId = savedTx.id,
-            notes = request.notes
+            notes = cleanNotes
         )
         val savedSettlement = debtSettlementRepository.save(settlement)
 
@@ -115,6 +123,7 @@ class SettleGroupDebtUseCase(
             date = savedSettlement.date,
             transactionId = savedSettlement.transactionId,
             notes = savedSettlement.notes,
+            isForgiveness = savedSettlement.isForgiveness,
             createdAt = savedSettlement.createdAt
         )
     }

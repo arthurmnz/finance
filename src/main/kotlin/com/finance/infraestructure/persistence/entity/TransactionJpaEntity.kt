@@ -80,6 +80,9 @@ class TransactionJpaEntity(
     @Column(name = "total_installments")
     var totalInstallments: Int? = null,
 
+    @Column(name = "generates_debt", nullable = false, columnDefinition = "boolean default false")
+    var generatesDebt: Boolean = false,
+
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: LocalDateTime = LocalDateTime.now(),
 

@@ -2,6 +2,7 @@ package com.finance.domain.entity
 
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
+import com.finance.domain.exception.InvalidTransactionException
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.UUID
@@ -27,6 +28,7 @@ class TransactionEntity(
     invoiceYear: Int? = null,
     val installmentNumber: Int? = null,
     val totalInstallments: Int? = null,
+    generatesDebt: Boolean = false,
     val createdAt: LocalDateTime = LocalDateTime.now(),
     updatedAt: LocalDateTime = LocalDateTime.now()
 ) {
@@ -66,14 +68,25 @@ class TransactionEntity(
     var invoiceYear: Int? = invoiceYear
         private set
 
+    var generatesDebt: Boolean = generatesDebt
+        private set
+
     var updatedAt: LocalDateTime = updatedAt
         private set
 
     init {
+        if (amount <= 0) {
+            throw InvalidTransactionException("O valor da transação deve ser maior que zero.")
+        }
         if (type == TransactionType.TRANSFER) {
             requireNotNull(destinationAccountId) { "Destination account is required for transfers" }
         } else {
             require(destinationAccountId == null) { "Destination account must be null for non-transfers" }
+        }
+        if (generatesDebt) {
+            require(type == TransactionType.TRANSFER && creditCardId == null && destinationAccountId != null) {
+                "Apenas transferências bancárias podem gerar saldo devedor."
+            }
         }
     }
 
@@ -96,7 +109,8 @@ class TransactionEntity(
         invoiceMonth: Int? = null,
         invoiceYear: Int? = null,
         installmentNumber: Int? = null,
-        totalInstallments: Int? = null
+        totalInstallments: Int? = null,
+        generatesDebt: Boolean = false
     ) : this(
         id = UUID.randomUUID(),
         title = title,
@@ -118,6 +132,7 @@ class TransactionEntity(
         invoiceYear = invoiceYear,
         installmentNumber = installmentNumber,
         totalInstallments = totalInstallments,
+        generatesDebt = generatesDebt,
         createdAt = LocalDateTime.now(),
         updatedAt = LocalDateTime.now()
     )
@@ -129,8 +144,17 @@ class TransactionEntity(
         newCategoryId: UUID?,
         newStatus: TransactionStatus,
         newInvoiceMonth: Int? = this.invoiceMonth,
-        newInvoiceYear: Int? = this.invoiceYear
+        newInvoiceYear: Int? = this.invoiceYear,
+        newGeneratesDebt: Boolean = this.generatesDebt
     ) {
+        if (newAmount <= 0) {
+            throw InvalidTransactionException("O valor da transação deve ser maior que zero.")
+        }
+        if (newGeneratesDebt) {
+            require(type == TransactionType.TRANSFER && creditCardId == null && destinationAccountId != null) {
+                "Apenas transferências bancárias podem gerar saldo devedor."
+            }
+        }
         this.title = newTitle
         this.amount = newAmount
         this.date = newDate
@@ -138,6 +162,7 @@ class TransactionEntity(
         this.status = newStatus
         this.invoiceMonth = newInvoiceMonth
         this.invoiceYear = newInvoiceYear
+        this.generatesDebt = newGeneratesDebt
         this.updatedAt = LocalDateTime.now()
     }
 

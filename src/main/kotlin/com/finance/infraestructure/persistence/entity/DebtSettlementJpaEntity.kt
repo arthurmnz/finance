@@ -42,6 +42,9 @@ class DebtSettlementJpaEntity(
     @Column(name = "notes", nullable = true, length = 500)
     var notes: String? = null,
 
+    @Column(name = "is_forgiveness", nullable = false, columnDefinition = "boolean default false")
+    var isForgiveness: Boolean = false,
+
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: LocalDateTime = LocalDateTime.now(),
 

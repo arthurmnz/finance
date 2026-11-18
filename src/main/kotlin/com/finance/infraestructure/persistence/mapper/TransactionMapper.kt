@@ -28,6 +28,7 @@ class TransactionMapper {
             invoiceYear = jpaEntity.invoiceYear,
             installmentNumber = jpaEntity.installmentNumber,
             totalInstallments = jpaEntity.totalInstallments,
+            generatesDebt = jpaEntity.generatesDebt,
             createdAt = jpaEntity.createdAt,
             updatedAt = jpaEntity.updatedAt
         )
@@ -55,6 +56,7 @@ class TransactionMapper {
             invoiceYear = domainEntity.invoiceYear,
             installmentNumber = domainEntity.installmentNumber,
             totalInstallments = domainEntity.totalInstallments,
+            generatesDebt = domainEntity.generatesDebt,
             createdAt = domainEntity.createdAt,
             updatedAt = domainEntity.updatedAt
         )

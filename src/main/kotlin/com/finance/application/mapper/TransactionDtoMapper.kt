@@ -53,6 +53,7 @@ object TransactionDtoMapper {
             invoiceYear = entity.invoiceYear,
             installmentNumber = entity.installmentNumber,
             totalInstallments = entity.totalInstallments,
+            generatesDebt = entity.generatesDebt,
             createdAt = entity.createdAt,
             updatedAt = entity.updatedAt
         )

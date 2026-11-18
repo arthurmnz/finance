@@ -2,6 +2,7 @@ package com.finance.presentation.controller
 
 import com.finance.application.dto.group.CreateGroupRequest
 import com.finance.application.dto.group.DebtSettlementResponse
+import com.finance.application.dto.group.ForgiveDebtRequest
 import com.finance.application.dto.group.GroupDebtsResponse
 import com.finance.application.dto.group.GroupInvitationResponse
 import com.finance.application.dto.group.GroupMemberResponse
@@ -24,6 +25,7 @@ import com.finance.application.use_case.group.AcceptGroupInvitationUseCase
 import com.finance.application.use_case.group.CalculateGroupDebtsUseCase
 import com.finance.application.use_case.group.CreateGroupUseCase
 import com.finance.application.use_case.group.DeleteGroupUseCase
+import com.finance.application.use_case.group.ForgiveGroupDebtUseCase
 import com.finance.application.use_case.group.GetGroupUseCase
 import com.finance.application.use_case.group.GetGroupUsedCategoriesUseCase
 import com.finance.application.use_case.group.InviteMemberUseCase
@@ -84,7 +86,8 @@ class GroupController(
     private val creditCardService: CreditCardService,
     private val getGroupUsedCategoriesUseCase: GetGroupUsedCategoriesUseCase,
     private val calculateGroupDebtsUseCase: CalculateGroupDebtsUseCase,
-    private val settleGroupDebtUseCase: SettleGroupDebtUseCase
+    private val settleGroupDebtUseCase: SettleGroupDebtUseCase,
+    private val forgiveGroupDebtUseCase: ForgiveGroupDebtUseCase
 ) {
 
     // ── Grupo ──────────────────────────────────────────────────────────────
@@ -354,6 +357,17 @@ class GroupController(
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<DebtSettlementResponse> {
         val response = settleGroupDebtUseCase.execute(id, authenticatedUser.id, request)
+        return ResponseEntity.status(HttpStatus.CREATED).body(response)
+    }
+
+    @PostMapping("/{id}/debts/forgive")
+    @Operation(summary = "Perdoar parcial ou totalmente uma dívida de um membro para o credor autenticado")
+    fun forgiveDebt(
+        @PathVariable id: UUID,
+        @RequestBody request: ForgiveDebtRequest,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<DebtSettlementResponse> {
+        val response = forgiveGroupDebtUseCase.execute(id, authenticatedUser.id, request)
         return ResponseEntity.status(HttpStatus.CREATED).body(response)
     }
 }

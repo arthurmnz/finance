@@ -35,6 +35,10 @@ class CreateTransactionUseCase(
 ) {
     @Transactional
     fun execute(userId: UUID, request: CreateTransactionRequest): List<TransactionResponse> {
+        if (request.amount <= 0) {
+            throw InvalidTransactionException("O valor da transação deve ser maior que zero.")
+        }
+
         if (request.recurrenceInstallments < 0)
             throw InvalidTransactionException("A quantidade de parcelas não pode ser negativa.")
 
@@ -56,6 +60,10 @@ class CreateTransactionUseCase(
         }
 
         val creditCard = request.creditCardId?.let { creditCardService.requireCardAccess(it, userId) }
+
+        if (request.generatesDebt && (creditCard != null || request.type != TransactionType.TRANSFER)) {
+            throw InvalidTransactionException("Apenas transferências bancárias podem gerar saldo devedor.")
+        }
 
         val rawSplits = request.splits?.takeIf { it.isNotEmpty() }
         if (rawSplits != null) {
@@ -88,9 +96,45 @@ class CreateTransactionUseCase(
             for (split in effectiveSplits) {
                 val acc = accountRepository.findById(split.accountId) ?: throw AccountNotFoundException("Conta não encontrada")
                 val hasAccess = acc.ownerId == userId || (acc.groupId != null && groupMemberRepository.existsByGroupIdAndUserId(acc.groupId!!, userId))
-                if (!hasAccess) throw AccessDeniedException("Você não tem permissão para lançar transações na conta ${acc.name}.")
+                if (!hasAccess) throw AccessDeniedException("Você não tem permissão para registrar transações na conta informada.")
                 accountsById[acc.id] = acc
             }
+        }
+
+        var preloadedDestAccount: AccountEntity? = null
+        if (creditCard == null && request.type == TransactionType.TRANSFER) {
+            val destId = request.destinationAccountId
+                ?: throw InvalidTransactionException("Conta de destino é obrigatória para transferências.")
+            if (destId == request.accountId) {
+                throw InvalidTransactionException("A conta de destino deve ser diferente da conta de origem.")
+            }
+            val destAccount = accountRepository.findById(destId)
+                ?: throw AccountNotFoundException("Destinatario não encontrado")
+            val hasDestAccess = destAccount.ownerId == userId ||
+                (destAccount.groupId != null && groupMemberRepository.existsByGroupIdAndUserId(destAccount.groupId!!, userId))
+            if (!hasDestAccess) {
+                throw AccessDeniedException("Você não tem permissão para transferir para a conta de destino informada.")
+            }
+
+            if (request.generatesDebt) {
+                val sourceAccount = accountsById[request.accountId]
+                    ?: accountRepository.findById(request.accountId)
+                    ?: throw AccountNotFoundException("Conta não encontrada")
+                if (sourceAccount.ownerId != userId) {
+                    throw AccessDeniedException("Apenas o titular da conta de origem pode registrar a transferência como dívida.")
+                }
+                if (sourceAccount.ownerId == destAccount.ownerId) {
+                    throw InvalidTransactionException("A transferência deve ser entre pessoas distintas para gerar saldo devedor.")
+                }
+                val sharedGroupId = destAccount.groupId ?: sourceAccount.groupId
+                val bothInSharedGroup = sharedGroupId != null &&
+                    groupMemberRepository.existsByGroupIdAndUserId(sharedGroupId, sourceAccount.ownerId) &&
+                    groupMemberRepository.existsByGroupIdAndUserId(sharedGroupId, destAccount.ownerId)
+                if (!bothInSharedGroup) {
+                    throw InvalidTransactionException("As contas da transferência devem estar vinculadas a um grupo em comum entre os dois usuários para gerar saldo devedor.")
+                }
+            }
+            preloadedDestAccount = destAccount
         }
 
         var installments = if (request.isRecurring) request.recurrenceInstallments else 1
@@ -163,7 +207,8 @@ class CreateTransactionUseCase(
                     invoiceMonth = itemInvoiceYm?.monthValue,
                     invoiceYear = itemInvoiceYm?.year,
                     installmentNumber = if (isFixedInstallmentPlan) i + 1 else null,
-                    totalInstallments = if (isFixedInstallmentPlan) installments else null
+                    totalInstallments = if (isFixedInstallmentPlan) installments else null,
+                    generatesDebt = request.generatesDebt && request.type == TransactionType.TRANSFER && creditCard == null
                 )
                 transactionsToSave.add(transaction)
 
@@ -176,7 +221,8 @@ class CreateTransactionUseCase(
                         TransactionType.EXPENSE -> account.subtractBalance(transaction.amount)
                         TransactionType.TRANSFER -> {
                             account.subtractBalance(transaction.amount)
-                            val destinationAccount = request.destinationAccountId?.let { accountRepository.findById(it) }
+                            val destinationAccount = preloadedDestAccount
+                                ?: request.destinationAccountId?.let { accountRepository.findById(it) }
                                 ?: throw AccountNotFoundException("Destinatario não encontrado")
                             destinationAccount.addBalance(transaction.amount)
                             accountRepository.save(destinationAccount)
