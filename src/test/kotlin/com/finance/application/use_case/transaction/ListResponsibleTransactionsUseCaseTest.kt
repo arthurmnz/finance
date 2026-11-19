@@ -21,6 +21,7 @@ import java.time.LocalDate
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 
 class ListResponsibleTransactionsUseCaseTest {
 
@@ -79,8 +80,12 @@ class ListResponsibleTransactionsUseCaseTest {
         )
         `when`(categoryRepository.findByIdIn(listOf(catUber.id))).thenReturn(listOf(catUber))
         `when`(categoryRepository.findByIdIn(listOf(catTransporte.id))).thenReturn(listOf(catTransporte))
+        `when`(categoryRepository.findByIdIn(listOf(catUber.id, catTransporte.id)))
+            .thenReturn(listOf(catUber, catTransporte))
+        `when`(categoryRepository.findByIdIn(listOf(catTransporte.id, catUber.id)))
+            .thenReturn(listOf(catUber, catTransporte))
 
-        // Compra no cartão realizada em 28 de outubro, cuja fatura é de novembro
+        // Compra no cartão realizada em 28 de outubro, cuja fatura é de novembro (GENERAL + SPECIFIC)
         val txOct = TransactionEntity(
             title = "Uber Outubro",
             amount = 3500,
@@ -93,23 +98,25 @@ class ListResponsibleTransactionsUseCaseTest {
             status = TransactionStatus.COMPLETED,
             creditCardId = UUID.randomUUID(),
             invoiceMonth = 11,
-            invoiceYear = 2026
+            invoiceYear = 2026,
+            generalCategoryId = catTransporte.id
         )
 
-        // Compra no cartão realizada em 05 de novembro
+        // Compra no cartão realizada em 05 de novembro (apenas GENERAL)
         val txNov = TransactionEntity(
-            title = "Uber Novembro",
+            title = "Transporte Geral Novembro",
             amount = 4500,
             date = LocalDate.of(2026, 11, 5),
             responsibleId = user.id,
             accountId = UUID.randomUUID(),
             type = TransactionType.EXPENSE,
             destinationAccountId = null,
-            categoryId = catUber.id,
+            categoryId = catTransporte.id,
             status = TransactionStatus.COMPLETED,
             creditCardId = UUID.randomUUID(),
             invoiceMonth = 11,
-            invoiceYear = 2026
+            invoiceYear = 2026,
+            generalCategoryId = catTransporte.id
         )
 
         `when`(transactionRepository.findByResponsibleId(user.id)).thenReturn(listOf(txOct, txNov))
@@ -126,11 +133,20 @@ class ListResponsibleTransactionsUseCaseTest {
         assertEquals(CategoryLevel.SPECIFIC, octList[0].category?.level)
         assertEquals(catTransporte.id, octList[0].category?.parentId)
         assertEquals("Transporte", octList[0].category?.parent?.name)
+        assertEquals(catTransporte.id, octList[0].generalCategoryId)
+        assertEquals(catUber.id, octList[0].specificCategoryId)
+        assertEquals("Transporte", octList[0].generalCategory?.name)
+        assertEquals("Uber", octList[0].specificCategory?.name)
 
-        // Quando filtrado por novembro de 2026 (month = 11, year = 2026)
+        // Quando filtrado por novembro de 2026 (month = 11, year = 2026) -> apenas GENERAL
         val novList = useCase.execute(user.id, month = 11, year = 2026)
         assertEquals(1, novList.size)
-        assertEquals("Uber Novembro", novList[0].title)
+        assertEquals("Transporte Geral Novembro", novList[0].title)
+        assertEquals(catTransporte.id, novList[0].categoryId)
+        assertEquals(catTransporte.id, novList[0].generalCategoryId)
+        assertNull(novList[0].specificCategoryId)
+        assertEquals("Transporte", novList[0].generalCategory?.name)
+        assertNull(novList[0].specificCategory)
     }
 
     @Test

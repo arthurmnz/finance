@@ -10,7 +10,13 @@ interface TransactionRepository {
     fun findByAccountId(accountId: UUID): List<TransactionEntity>
     fun findByCategoryId(categoryId: UUID): List<TransactionEntity>
     fun findByCategoryIdIn(categoryIds: Collection<UUID>): List<TransactionEntity>
+    fun findByCategoryIdInOrGeneralCategoryId(categoryIds: Collection<UUID>, generalCategoryId: UUID): List<TransactionEntity>
+    fun findByGeneralCategoryId(generalCategoryId: UUID): List<TransactionEntity>
+    fun findByCategoryIdIsNotNullAndGeneralCategoryIdIsNull(): List<TransactionEntity>
     fun clearCategoryId(categoryId: UUID)
+    fun clearCategoryReferences(categoryId: UUID)
+    fun fallbackSpecificCategoryToGeneral(specificCategoryId: UUID, generalCategoryId: UUID)
+    fun updateGeneralCategoryForCategory(categoryId: UUID, newGeneralCategoryId: UUID)
     fun reassignCategory(fromCategoryId: UUID, toCategoryId: UUID)
     fun findByDestinationAccountId(destinationAccountId: UUID): List<TransactionEntity>
     fun findByCreditCardId(creditCardId: UUID): List<TransactionEntity>

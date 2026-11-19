@@ -7,7 +7,9 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.time.LocalDate
 import java.util.UUID
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TransactionEntityTest {
@@ -141,5 +143,61 @@ class TransactionEntityTest {
                 newStatus = TransactionStatus.COMPLETED
             )
         }
+    }
+
+    @Test
+    fun `should store and update generalCategoryId while keeping categoryId compatibility`() {
+        val generalId = UUID.randomUUID()
+        val specificId = UUID.randomUUID()
+        val newGeneralId = UUID.randomUUID()
+
+        val tx = TransactionEntity(
+            title = "Conta de Luz",
+            amount = 20000,
+            date = LocalDate.of(2026, 11, 10),
+            responsibleId = UUID.randomUUID(),
+            accountId = UUID.randomUUID(),
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = specificId,
+            status = TransactionStatus.COMPLETED,
+            generalCategoryId = generalId
+        )
+        assertEquals(specificId, tx.categoryId)
+        assertEquals(generalId, tx.generalCategoryId)
+
+        // Updating without specifying newGeneralCategoryId preserves existing generalCategoryId
+        tx.update(
+            newTitle = "Conta de Luz Atualizada",
+            newAmount = 21000,
+            newDate = LocalDate.of(2026, 11, 11),
+            newCategoryId = specificId,
+            newStatus = TransactionStatus.COMPLETED
+        )
+        assertEquals(generalId, tx.generalCategoryId)
+
+        // Updating with newGeneralCategoryId updates both
+        tx.update(
+            newTitle = "Só Geral",
+            newAmount = 21000,
+            newDate = LocalDate.of(2026, 11, 11),
+            newCategoryId = newGeneralId,
+            newStatus = TransactionStatus.COMPLETED,
+            newGeneralCategoryId = newGeneralId
+        )
+        assertEquals(newGeneralId, tx.categoryId)
+        assertEquals(newGeneralId, tx.generalCategoryId)
+
+        // Clearing both to null
+        tx.update(
+            newTitle = "Sem Categoria",
+            newAmount = 21000,
+            newDate = LocalDate.of(2026, 11, 11),
+            newCategoryId = null,
+            newStatus = TransactionStatus.COMPLETED,
+            newGeneralCategoryId = null
+        )
+        assertNull(tx.categoryId)
+        assertNull(tx.generalCategoryId)
     }
 }

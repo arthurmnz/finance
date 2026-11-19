@@ -45,15 +45,15 @@ class CreateTransactionUseCase(
         if (request.recurrenceInterval <= 0 && request.isRecurring)
             throw InvalidTransactionException("O Intervalo não pode ser nulo ou negativo.")
 
-        val category = request.categoryId?.let { catId ->
-            TransactionCategoryValidator.validateForTransaction(
-                categoryRepository = categoryRepository,
-                groupMemberRepository = groupMemberRepository,
-                categoryId = catId,
-                userId = userId,
-                transactionType = request.type
-            )
-        }
+        val resolvedCategories = TransactionCategoryValidator.validateSelection(
+            categoryRepository = categoryRepository,
+            groupMemberRepository = groupMemberRepository,
+            userId = userId,
+            transactionType = request.type,
+            categoryId = request.categoryId,
+            generalCategoryId = request.generalCategoryId,
+            specificCategoryId = request.specificCategoryId
+        )
 
         val creditCard = request.creditCardId?.let { creditCardService.requireCardAccess(it, userId) }
 
@@ -133,7 +133,7 @@ class CreateTransactionUseCase(
             preloadedDestAccount = destAccount
         }
 
-        if (category?.groupId != null) {
+        if (resolvedCategories.allCategories.any { it.groupId != null }) {
             val involvedGroupIds = buildList {
                 if (creditCard != null) {
                     add(creditCard.groupId)
@@ -144,7 +144,7 @@ class CreateTransactionUseCase(
                     }
                 }
             }
-            TransactionCategoryValidator.validateGroupScope(category, involvedGroupIds)
+            TransactionCategoryValidator.validateGroupScope(resolvedCategories, involvedGroupIds)
         }
 
         var installments = if (request.isRecurring) request.recurrenceInstallments else 1
@@ -207,7 +207,7 @@ class CreateTransactionUseCase(
                     accountId = split.accountId,
                     type = request.type,
                     destinationAccountId = if (creditCard != null) null else request.destinationAccountId,
-                    categoryId = request.categoryId,
+                    categoryId = resolvedCategories.effectiveCategoryId,
                     status = itemStatus,
                     recurrenceGroupId = recurrenceGroupId,
                     recurrenceFrequency = request.recurrenceFrequency.takeIf { request.isRecurring },
@@ -218,7 +218,8 @@ class CreateTransactionUseCase(
                     invoiceYear = itemInvoiceYm?.year,
                     installmentNumber = if (isFixedInstallmentPlan) i + 1 else null,
                     totalInstallments = if (isFixedInstallmentPlan) installments else null,
-                    generatesDebt = request.generatesDebt && request.type == TransactionType.TRANSFER && creditCard == null
+                    generatesDebt = request.generatesDebt && request.type == TransactionType.TRANSFER && creditCard == null,
+                    generalCategoryId = resolvedCategories.effectiveGeneralCategoryId
                 )
                 transactionsToSave.add(transaction)
 
@@ -252,11 +253,18 @@ class CreateTransactionUseCase(
             }
         }
 
-        val parentCategory = category?.parentId?.let { categoryRepository.findById(it) }
+        val responseCategory = resolvedCategories.specificCategory ?: resolvedCategories.generalCategory
+        val responseParent = if (resolvedCategories.specificCategory != null) resolvedCategories.generalCategory else null
         val users = userRepository.findAll().associateBy { it.id }
         val savedTransactions = transactionRepository.saveAll(transactionsToSave)
         return savedTransactions.map {
-            TransactionDtoMapper.toResponse(it, users[it.responsibleId], category, parentCategory)
+            TransactionDtoMapper.toResponse(
+                entity = it,
+                responsibleUser = users[it.responsibleId],
+                category = responseCategory,
+                parentCategory = responseParent,
+                generalCategoryEntity = resolvedCategories.generalCategory
+            )
         }
     }
 }

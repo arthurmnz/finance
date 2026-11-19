@@ -1,6 +1,7 @@
 package com.finance.application.mapper
 
 import com.finance.domain.entity.CategoryEntity
+import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.CategoryRepository
 import com.finance.domain.repository.CreditCardRepository
@@ -12,6 +13,29 @@ import java.util.UUID
  * para evitar problemas de N+1 ao serializar respostas de transações e listagens.
  */
 object CategoryBatchLoader {
+    fun loadForTransactions(
+        categoryRepository: CategoryRepository,
+        transactions: Collection<TransactionEntity>
+    ): Map<UUID, CategoryEntity> {
+        if (transactions.isEmpty()) return emptyMap()
+
+        val directIds = transactions
+            .flatMap { listOfNotNull(it.categoryId, it.generalCategoryId) }
+            .distinct()
+        if (directIds.isEmpty()) return emptyMap()
+
+        val loaded = categoryRepository.findByIdIn(directIds).associateBy { it.id }
+        val missingParentIds = loaded.values
+            .mapNotNull { it.parentId }
+            .distinct()
+            .filter { !loaded.containsKey(it) }
+
+        if (missingParentIds.isEmpty()) return loaded
+
+        val parents = categoryRepository.findByIdIn(missingParentIds).associateBy { it.id }
+        return loaded + parents
+    }
+
     fun loadWithParents(
         categoryRepository: CategoryRepository,
         categoryIds: Collection<UUID>
@@ -68,12 +92,16 @@ object CategoryBatchLoader {
         val usedCategoryIds = mutableSetOf<UUID>()
         accounts.forEach { acc ->
             transactionRepository.findByAccountId(acc.id).forEach { tx ->
-                tx.categoryId?.let { usedCategoryIds.add(it) }
+                if (tx.creditCardId == null) {
+                    tx.categoryId?.let { usedCategoryIds.add(it) }
+                    tx.generalCategoryId?.let { usedCategoryIds.add(it) }
+                }
             }
         }
         cards.forEach { card ->
             transactionRepository.findByCreditCardId(card.id).forEach { tx ->
                 tx.categoryId?.let { usedCategoryIds.add(it) }
+                tx.generalCategoryId?.let { usedCategoryIds.add(it) }
             }
         }
 

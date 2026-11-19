@@ -36,6 +36,8 @@ import java.time.LocalDate
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class CreateTransactionUseCaseTest {
@@ -544,9 +546,18 @@ class CreateTransactionUseCaseTest {
     }
 
     @Test
-    fun `should reject linking transaction to GENERAL category`() {
+    fun `should allow linking transaction only to GENERAL category via generalCategoryId or legacy categoryId`() {
         val userA = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
-        val accountId = UUID.randomUUID()
+        val acc = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userA.id,
+            name = "Conta Principal",
+            startBalance = 500000,
+            balance = 500000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = null
+        )
         val generalCategory = CategoryEntity(
             id = UUID.randomUUID(),
             name = "Moradia",
@@ -559,17 +570,215 @@ class CreateTransactionUseCaseTest {
             level = CategoryLevel.GENERAL
         )
         `when`(categoryRepository.findById(generalCategory.id)).thenReturn(generalCategory)
+        `when`(accountRepository.findById(acc.id)).thenReturn(acc)
+        `when`(userRepository.findAll()).thenReturn(listOf(userA))
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
 
+        val viaGeneralField = useCase.execute(
+            userA.id,
+            CreateTransactionRequest(
+                title = "Taxa Residencial",
+                amount = 15000,
+                date = LocalDate.of(2026, 11, 10),
+                accountId = acc.id,
+                type = TransactionType.EXPENSE,
+                generalCategoryId = generalCategory.id,
+                status = TransactionStatus.COMPLETED
+            )
+        )
+        assertEquals(1, viaGeneralField.size)
+        assertEquals(generalCategory.id, viaGeneralField[0].categoryId)
+        assertEquals(generalCategory.id, viaGeneralField[0].generalCategoryId)
+        assertNull(viaGeneralField[0].specificCategoryId)
+        assertEquals("Moradia", viaGeneralField[0].generalCategory?.name)
+        assertNull(viaGeneralField[0].specificCategory)
+        assertEquals("Moradia", viaGeneralField[0].category?.name)
+
+        val viaLegacyCategoryId = useCase.execute(
+            userA.id,
+            CreateTransactionRequest(
+                title = "Outro Gasto Moradia",
+                amount = 5000,
+                date = LocalDate.of(2026, 11, 11),
+                accountId = acc.id,
+                type = TransactionType.EXPENSE,
+                categoryId = generalCategory.id,
+                status = TransactionStatus.COMPLETED
+            )
+        )
+        assertEquals(generalCategory.id, viaLegacyCategoryId[0].categoryId)
+        assertEquals(generalCategory.id, viaLegacyCategoryId[0].generalCategoryId)
+        assertNull(viaLegacyCategoryId[0].specificCategoryId)
+        assertEquals("Moradia", viaLegacyCategoryId[0].generalCategory?.name)
+        assertNull(viaLegacyCategoryId[0].specificCategory)
+    }
+
+    @Test
+    fun `should create transaction with GENERAL and SPECIFIC and reject mismatched, invalid level, or conflicting category fields`() {
+        val userA = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val acc = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userA.id,
+            name = "Conta Principal",
+            startBalance = 500000,
+            balance = 500000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = null
+        )
+        val generalMoradia = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Moradia",
+            description = null,
+            userId = userA.id,
+            groupId = null,
+            type = CategoryType.EXPENSE,
+            color = "#7D39EB",
+            icon = "🏠",
+            level = CategoryLevel.GENERAL
+        )
+        val specificAluguel = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Aluguel",
+            description = null,
+            userId = userA.id,
+            groupId = null,
+            type = CategoryType.EXPENSE,
+            color = "#7D39EB",
+            icon = "🔑",
+            level = CategoryLevel.SPECIFIC,
+            parentId = generalMoradia.id
+        )
+        val generalAlimentacao = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Alimentação",
+            description = null,
+            userId = userA.id,
+            groupId = null,
+            type = CategoryType.EXPENSE,
+            color = "#E4FF8F",
+            icon = "🍽️",
+            level = CategoryLevel.GENERAL
+        )
+        val specificMercado = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Supermercado",
+            description = null,
+            userId = userA.id,
+            groupId = null,
+            type = CategoryType.EXPENSE,
+            color = "#E4FF8F",
+            icon = "🛒",
+            level = CategoryLevel.SPECIFIC,
+            parentId = generalAlimentacao.id
+        )
+
+        `when`(categoryRepository.findById(generalMoradia.id)).thenReturn(generalMoradia)
+        `when`(categoryRepository.findById(specificAluguel.id)).thenReturn(specificAluguel)
+        `when`(categoryRepository.findById(generalAlimentacao.id)).thenReturn(generalAlimentacao)
+        `when`(categoryRepository.findById(specificMercado.id)).thenReturn(specificMercado)
+        `when`(accountRepository.findById(acc.id)).thenReturn(acc)
+        `when`(userRepository.findAll()).thenReturn(listOf(userA))
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        // Valid GENERAL + SPECIFIC
+        val bothResult = useCase.execute(
+            userA.id,
+            CreateTransactionRequest(
+                title = "Aluguel Nov",
+                amount = 200000,
+                date = LocalDate.of(2026, 11, 10),
+                accountId = acc.id,
+                type = TransactionType.EXPENSE,
+                generalCategoryId = generalMoradia.id,
+                specificCategoryId = specificAluguel.id,
+                status = TransactionStatus.COMPLETED
+            )
+        )
+        assertEquals(specificAluguel.id, bothResult[0].categoryId)
+        assertEquals(generalMoradia.id, bothResult[0].generalCategoryId)
+        assertEquals(specificAluguel.id, bothResult[0].specificCategoryId)
+        assertEquals("Moradia", bothResult[0].generalCategory?.name)
+        assertEquals("Aluguel", bothResult[0].specificCategory?.name)
+        assertEquals("Moradia", bothResult[0].specificCategory?.parent?.name)
+        assertEquals("Aluguel", bothResult[0].category?.name)
+
+        // Valid specificCategoryId only (resolves general parent)
+        val specificOnlyResult = useCase.execute(
+            userA.id,
+            CreateTransactionRequest(
+                title = "Mercado",
+                amount = 30000,
+                date = LocalDate.of(2026, 11, 10),
+                accountId = acc.id,
+                type = TransactionType.EXPENSE,
+                specificCategoryId = specificMercado.id,
+                status = TransactionStatus.COMPLETED
+            )
+        )
+        assertEquals(specificMercado.id, specificOnlyResult[0].categoryId)
+        assertEquals(generalAlimentacao.id, specificOnlyResult[0].generalCategoryId)
+        assertEquals(specificMercado.id, specificOnlyResult[0].specificCategoryId)
+
+        // Reject SPECIFIC that does NOT belong to informed GENERAL
         assertThrows<InvalidTransactionException> {
             useCase.execute(
                 userA.id,
                 CreateTransactionRequest(
-                    title = "Aluguel",
-                    amount = 200000,
+                    title = "Inconsistente",
+                    amount = 5000,
                     date = LocalDate.of(2026, 11, 10),
-                    accountId = accountId,
+                    accountId = acc.id,
                     type = TransactionType.EXPENSE,
-                    categoryId = generalCategory.id
+                    generalCategoryId = generalMoradia.id,
+                    specificCategoryId = specificMercado.id
+                )
+            )
+        }
+
+        // Reject SPECIFIC passed in generalCategoryId
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userA.id,
+                CreateTransactionRequest(
+                    title = "Específica como Geral",
+                    amount = 5000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = acc.id,
+                    type = TransactionType.EXPENSE,
+                    generalCategoryId = specificAluguel.id
+                )
+            )
+        }
+
+        // Reject GENERAL passed in specificCategoryId
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userA.id,
+                CreateTransactionRequest(
+                    title = "Geral como Específica",
+                    amount = 5000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = acc.id,
+                    type = TransactionType.EXPENSE,
+                    specificCategoryId = generalMoradia.id
+                )
+            )
+        }
+
+        // Reject conflict between specificCategoryId and categoryId
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userA.id,
+                CreateTransactionRequest(
+                    title = "Conflito",
+                    amount = 5000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = acc.id,
+                    type = TransactionType.EXPENSE,
+                    generalCategoryId = generalMoradia.id,
+                    specificCategoryId = specificAluguel.id,
+                    categoryId = specificMercado.id
                 )
             )
         }
@@ -705,6 +914,7 @@ class CreateTransactionUseCaseTest {
         )
 
         `when`(categoryRepository.findById(groupSpecific.id)).thenReturn(groupSpecific)
+        `when`(categoryRepository.findById(groupGeneral.id)).thenReturn(groupGeneral)
         `when`(groupMemberRepository.existsByGroupIdAndUserId(groupId, userA.id)).thenReturn(true)
         `when`(accountRepository.findById(personalAcc.id)).thenReturn(personalAcc)
 
@@ -718,6 +928,20 @@ class CreateTransactionUseCaseTest {
                     accountId = personalAcc.id,
                     type = TransactionType.EXPENSE,
                     categoryId = groupSpecific.id
+                )
+            )
+        }
+
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userA.id,
+                CreateTransactionRequest(
+                    title = "Moradia Grupo",
+                    amount = 100000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = personalAcc.id,
+                    type = TransactionType.EXPENSE,
+                    generalCategoryId = groupGeneral.id
                 )
             )
         }

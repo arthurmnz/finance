@@ -404,8 +404,27 @@ class CategoryHierarchyUseCasesTest {
         )
         deleteCategoryUseCase.execute(userId, specific.id)
 
-        verify(transactionRepository).clearCategoryId(specific.id)
+        verify(transactionRepository).fallbackSpecificCategoryToGeneral(specific.id, specific.parentId!!)
         verify(categoryRepository).delete(specific.id)
+
+        val leafGeneral = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Viagens",
+            description = null,
+            userId = userId,
+            groupId = null,
+            type = CategoryType.EXPENSE,
+            color = null,
+            icon = null,
+            level = CategoryLevel.GENERAL
+        )
+        `when`(categoryRepository.findById(leafGeneral.id)).thenReturn(leafGeneral)
+        `when`(categoryRepository.existsByParentId(leafGeneral.id)).thenReturn(false)
+
+        deleteCategoryUseCase.execute(userId, leafGeneral.id)
+
+        verify(transactionRepository).clearCategoryReferences(leafGeneral.id)
+        verify(categoryRepository).delete(leafGeneral.id)
     }
 
     @Test
@@ -491,6 +510,18 @@ class CategoryHierarchyUseCasesTest {
             parentId = general.id
         )
 
+        val txDirectGeneral = TransactionEntity(
+            title = "Reforma Geral",
+            amount = 50000,
+            date = LocalDate.of(2026, 5, 2),
+            responsibleId = userId,
+            accountId = UUID.randomUUID(),
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = general.id,
+            status = TransactionStatus.COMPLETED,
+            generalCategoryId = general.id
+        )
         val tx1 = TransactionEntity(
             title = "Aluguel Maio",
             amount = 150000,
@@ -500,7 +531,8 @@ class CategoryHierarchyUseCasesTest {
             type = TransactionType.EXPENSE,
             destinationAccountId = null,
             categoryId = childAluguel.id,
-            status = TransactionStatus.COMPLETED
+            status = TransactionStatus.COMPLETED,
+            generalCategoryId = general.id
         )
         val tx2 = TransactionEntity(
             title = "Conta de Água",
@@ -511,22 +543,35 @@ class CategoryHierarchyUseCasesTest {
             type = TransactionType.EXPENSE,
             destinationAccountId = null,
             categoryId = childAgua.id,
-            status = TransactionStatus.COMPLETED
+            status = TransactionStatus.COMPLETED,
+            generalCategoryId = general.id
         )
 
         `when`(categoryRepository.findById(general.id)).thenReturn(general)
         `when`(categoryRepository.findByParentId(general.id)).thenReturn(listOf(childAluguel, childAgua))
-        `when`(transactionRepository.findByCategoryIdIn(listOf(general.id, childAluguel.id, childAgua.id)))
-            .thenReturn(listOf(tx1, tx2))
+        `when`(transactionRepository.findByCategoryIdInOrGeneralCategoryId(listOf(general.id, childAluguel.id, childAgua.id), general.id))
+            .thenReturn(listOf(txDirectGeneral, tx1, tx2))
         `when`(userRepository.findAll()).thenReturn(listOf(user))
 
         val result = listCategoryTransactionsUseCase.execute(general.id, month = 5, year = 2026, authenticatedUserId = userId)
-        assertEquals(2, result.size)
+        assertEquals(3, result.size)
+
+        val directTx = result.first { it.title == "Reforma Geral" }
+        assertEquals(general.id, directTx.categoryId)
+        assertEquals(general.id, directTx.generalCategoryId)
+        assertNull(directTx.specificCategoryId)
+        assertEquals("Moradia", directTx.generalCategory?.name)
+        assertNull(directTx.specificCategory)
+        assertEquals("Moradia", directTx.category?.name)
 
         val aluguelTx = result.first { it.title == "Aluguel Maio" }
         assertEquals("Aluguel", aluguelTx.category?.name)
         assertEquals("Moradia", aluguelTx.category?.parent?.name)
         assertEquals(CategoryLevel.SPECIFIC, aluguelTx.category?.level)
+        assertEquals(general.id, aluguelTx.generalCategoryId)
+        assertEquals(childAluguel.id, aluguelTx.specificCategoryId)
+        assertEquals("Moradia", aluguelTx.generalCategory?.name)
+        assertEquals("Aluguel", aluguelTx.specificCategory?.name)
 
         val aguaTx = result.first { it.title == "Conta de Água" }
         assertEquals("Água", aguaTx.category?.name)
@@ -683,24 +728,8 @@ class CategoryHierarchyUseCasesTest {
         `when`(categoryRepository.findById(anotherSpecific.id)).thenReturn(anotherSpecific)
         `when`(categoryRepository.findById(groupGeneral.id)).thenReturn(groupGeneral)
         `when`(categoryRepository.existsByParentId(general.id)).thenReturn(false)
+        `when`(categoryRepository.save(anyNonNull())).thenAnswer { it.getArgument<CategoryEntity>(0) }
         `when`(transactionRepository.findByCategoryId(specific.id)).thenReturn(listOf(linkedExpenseTx))
-
-        // Block SPECIFIC -> GENERAL promotion when transactions exist
-        assertThrows<InvalidCategoryException> {
-            updateCategoryUseCase.execute(
-                userId,
-                specific.id,
-                UpdateCategoryRequest(
-                    name = "Aluguel",
-                    description = null,
-                    type = CategoryType.EXPENSE,
-                    color = null,
-                    icon = null,
-                    level = CategoryLevel.GENERAL,
-                    parentId = null
-                )
-            )
-        }
 
         // Block changing SPECIFIC type to INCOME when EXPENSE transaction exists (under BOTH general)
         val bothGeneral = CategoryEntity(
@@ -730,6 +759,101 @@ class CategoryHierarchyUseCasesTest {
                 )
             )
         }
+
+        // Allow moving SPECIFIC to another GENERAL (G1 -> G2) and propagate generalCategoryId in transactions
+        val movedSpecific = updateCategoryUseCase.execute(
+            userId,
+            specific.id,
+            UpdateCategoryRequest(
+                name = "Aluguel",
+                description = null,
+                type = CategoryType.EXPENSE,
+                color = null,
+                icon = null,
+                level = CategoryLevel.SPECIFIC,
+                parentId = bothGeneral.id
+            )
+        )
+        assertEquals(CategoryLevel.SPECIFIC, movedSpecific.level)
+        assertEquals(bothGeneral.id, movedSpecific.parentId)
+        verify(transactionRepository).updateGeneralCategoryForCategory(specific.id, bothGeneral.id)
+
+        // Allow SPECIFIC -> GENERAL promotion with linked transactions and propagate generalCategoryId = specific.id
+        val promotedToGeneral = updateCategoryUseCase.execute(
+            userId,
+            specific.id,
+            UpdateCategoryRequest(
+                name = "Aluguel Geral",
+                description = null,
+                type = CategoryType.EXPENSE,
+                color = null,
+                icon = null,
+                level = CategoryLevel.GENERAL,
+                parentId = null
+            )
+        )
+        assertEquals(CategoryLevel.GENERAL, promotedToGeneral.level)
+        assertNull(promotedToGeneral.parentId)
+        verify(transactionRepository).updateGeneralCategoryForCategory(specific.id, specific.id)
+
+        // Reject changing GENERAL type when direct transactions on GENERAL are incompatible
+        val directGeneralWithExpense = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Viagens",
+            description = null,
+            userId = userId,
+            groupId = null,
+            type = CategoryType.BOTH,
+            color = "#112233",
+            icon = "✈️",
+            level = CategoryLevel.GENERAL
+        )
+        val directGeneralTx = TransactionEntity(
+            title = "Passagem",
+            amount = 50000,
+            date = LocalDate.of(2026, 5, 6),
+            responsibleId = userId,
+            accountId = UUID.randomUUID(),
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = directGeneralWithExpense.id,
+            status = TransactionStatus.COMPLETED,
+            generalCategoryId = directGeneralWithExpense.id
+        )
+        `when`(categoryRepository.findById(directGeneralWithExpense.id)).thenReturn(directGeneralWithExpense)
+        `when`(categoryRepository.findByParentId(directGeneralWithExpense.id)).thenReturn(emptyList())
+        `when`(transactionRepository.findByCategoryId(directGeneralWithExpense.id)).thenReturn(listOf(directGeneralTx))
+        assertThrows<InvalidCategoryException> {
+            updateCategoryUseCase.execute(
+                userId,
+                directGeneralWithExpense.id,
+                UpdateCategoryRequest(
+                    name = "Viagens",
+                    description = null,
+                    type = CategoryType.INCOME,
+                    color = null,
+                    icon = null
+                )
+            )
+        }
+
+        // Allow demoting childless GENERAL -> SPECIFIC and propagate newParent.id in transactions
+        val demotedGeneral = updateCategoryUseCase.execute(
+            userId,
+            directGeneralWithExpense.id,
+            UpdateCategoryRequest(
+                name = "Viagens",
+                description = null,
+                type = CategoryType.EXPENSE,
+                color = null,
+                icon = null,
+                level = CategoryLevel.SPECIFIC,
+                parentId = bothGeneral.id
+            )
+        )
+        assertEquals(CategoryLevel.SPECIFIC, demotedGeneral.level)
+        assertEquals(bothGeneral.id, demotedGeneral.parentId)
+        verify(transactionRepository).updateGeneralCategoryForCategory(directGeneralWithExpense.id, bothGeneral.id)
 
         // Reject GENERAL with parentId != null
         assertThrows<InvalidCategoryException> {
@@ -932,12 +1056,25 @@ class CategoryHierarchyUseCasesTest {
             categoryId = groupSpecific.id,
             status = TransactionStatus.COMPLETED
         )
+        val personalCardOfUserBId = UUID.randomUUID()
+        val txOnPersonalCardWithGroupAccount = TransactionEntity(
+            title = "Compra Cartão Pessoal Maria na Conta Grupo",
+            amount = 7777,
+            date = LocalDate.of(2026, 6, 4),
+            responsibleId = userB,
+            accountId = groupAccount.id,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = groupSpecific.id,
+            status = TransactionStatus.COMPLETED,
+            creditCardId = personalCardOfUserBId
+        )
 
         `when`(categoryRepository.findById(groupGeneral.id)).thenReturn(groupGeneral)
         `when`(groupMemberRepository.existsByGroupIdAndUserId(groupId, userA)).thenReturn(true)
         `when`(categoryRepository.findByParentId(groupGeneral.id)).thenReturn(listOf(groupSpecific))
-        `when`(transactionRepository.findByCategoryIdIn(listOf(groupGeneral.id, groupSpecific.id)))
-            .thenReturn(listOf(txInGroupAccount, txInUserBPrivateAccount))
+        `when`(transactionRepository.findByCategoryIdInOrGeneralCategoryId(listOf(groupGeneral.id, groupSpecific.id), groupGeneral.id))
+            .thenReturn(listOf(txInGroupAccount, txInUserBPrivateAccount, txOnPersonalCardWithGroupAccount))
         `when`(accountRepository.findAllByGroupId(groupId)).thenReturn(listOf(groupAccount))
         `when`(creditCardRepository.findAllByGroupId(groupId)).thenReturn(emptyList())
 

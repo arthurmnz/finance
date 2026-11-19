@@ -43,9 +43,44 @@ class TransactionRepositoryImpl(
             .map { mapper.toDomain(it) }
     }
 
+    override fun findByCategoryIdInOrGeneralCategoryId(
+        categoryIds: Collection<UUID>,
+        generalCategoryId: UUID
+    ): List<TransactionEntity> {
+        if (categoryIds.isEmpty()) return findByGeneralCategoryId(generalCategoryId)
+        return springDataTransactionRepository
+            .findByCategoryIdInOrGeneralCategoryId(categoryIds, generalCategoryId)
+            .map { mapper.toDomain(it) }
+    }
+
+    override fun findByGeneralCategoryId(generalCategoryId: UUID): List<TransactionEntity> {
+        return springDataTransactionRepository.findByGeneralCategoryId(generalCategoryId)
+            .map { mapper.toDomain(it) }
+    }
+
+    override fun findByCategoryIdIsNotNullAndGeneralCategoryIdIsNull(): List<TransactionEntity> {
+        return springDataTransactionRepository.findByCategoryIdIsNotNullAndGeneralCategoryIdIsNull()
+            .map { mapper.toDomain(it) }
+    }
+
     @Transactional
     override fun clearCategoryId(categoryId: UUID) {
         springDataTransactionRepository.clearCategoryId(categoryId)
+    }
+
+    @Transactional
+    override fun clearCategoryReferences(categoryId: UUID) {
+        springDataTransactionRepository.clearCategoryReferences(categoryId)
+    }
+
+    @Transactional
+    override fun fallbackSpecificCategoryToGeneral(specificCategoryId: UUID, generalCategoryId: UUID) {
+        springDataTransactionRepository.fallbackSpecificCategoryToGeneral(specificCategoryId, generalCategoryId)
+    }
+
+    @Transactional
+    override fun updateGeneralCategoryForCategory(categoryId: UUID, newGeneralCategoryId: UUID) {
+        springDataTransactionRepository.updateGeneralCategoryForCategory(categoryId, newGeneralCategoryId)
     }
 
     @Transactional

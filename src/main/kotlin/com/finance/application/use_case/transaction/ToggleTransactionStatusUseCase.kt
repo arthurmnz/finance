@@ -79,17 +79,26 @@ class ToggleTransactionStatusUseCase(
             newAmount = transaction.amount,
             newDate = transaction.date,
             newCategoryId = transaction.categoryId,
-            newStatus = newStatus
+            newStatus = newStatus,
+            newGeneralCategoryId = transaction.generalCategoryId
         )
 
         val updatedTransaction = transactionRepository.save(transaction)
         val category = updatedTransaction.categoryId?.let { categoryRepository.findById(it) }
         val parentCategory = category?.parentId?.let { categoryRepository.findById(it) }
+        val generalCategory = updatedTransaction.generalCategoryId?.let { gid ->
+            when {
+                gid == category?.id -> category
+                gid == parentCategory?.id -> parentCategory
+                else -> categoryRepository.findById(gid)
+            }
+        }
         return TransactionDtoMapper.toResponse(
             updatedTransaction,
             userRepository.findById(transaction.responsibleId),
             category,
-            parentCategory
+            parentCategory,
+            generalCategory
         )
     }
 

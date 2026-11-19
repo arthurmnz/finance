@@ -61,19 +61,15 @@ class UpdateCategoryUseCase(
                 if (targetParentId != null) {
                     throw InvalidCategoryException("Categorias gerais não podem possuir categoria pai.")
                 }
-                if (category.level == CategoryLevel.SPECIFIC &&
-                    transactionRepository.findByCategoryId(category.id).isNotEmpty()
-                ) {
-                    throw InvalidCategoryException(
-                        "Não é possível converter uma categoria específica que já possui transações em categoria geral."
-                    )
-                }
                 if (request.type != category.type) {
                     val children = categoryRepository.findByParentId(category.id)
                     if (request.type != CategoryType.BOTH && children.any { it.type != request.type }) {
                         throw InvalidCategoryException(
                             "Não é possível alterar o tipo da categoria geral porque existem subcategorias com tipo incompatível."
                         )
+                    }
+                    if (request.type != CategoryType.BOTH) {
+                        validateLinkedTransactionsTypeCompatibility(category.id, request.type)
                     }
                 }
             }
@@ -94,19 +90,16 @@ class UpdateCategoryUseCase(
                 )
 
                 if (request.type != category.type && request.type != CategoryType.BOTH) {
-                    val linkedTransactions = transactionRepository.findByCategoryId(category.id)
-                    val hasIncompatibleTx = linkedTransactions.any { tx ->
-                        !TransactionCategoryValidator.isTypeCompatible(request.type, tx.type)
-                    }
-                    if (hasIncompatibleTx) {
-                        throw InvalidCategoryException(
-                            "Não é possível alterar o tipo da categoria porque existem transações incompatíveis vinculadas."
-                        )
-                    }
+                    validateLinkedTransactionsTypeCompatibility(category.id, request.type)
                 }
 
                 parentCategory = parent
             }
+        }
+
+        val shouldPropagateGeneralCategory = when (targetLevel) {
+            CategoryLevel.GENERAL -> category.level == CategoryLevel.SPECIFIC
+            CategoryLevel.SPECIFIC -> category.level == CategoryLevel.GENERAL || category.parentId != targetParentId
         }
 
         category.update(
@@ -120,6 +113,26 @@ class UpdateCategoryUseCase(
         )
 
         val updatedCategory = categoryRepository.save(category)
+        if (shouldPropagateGeneralCategory) {
+            val newGeneralCategoryId = if (targetLevel == CategoryLevel.GENERAL) {
+                updatedCategory.id
+            } else {
+                targetParentId!!
+            }
+            transactionRepository.updateGeneralCategoryForCategory(updatedCategory.id, newGeneralCategoryId)
+        }
         return CategoryDtoMapper.toResponse(updatedCategory, parentCategory)
+    }
+
+    private fun validateLinkedTransactionsTypeCompatibility(categoryId: UUID, newType: CategoryType) {
+        val linkedTransactions = transactionRepository.findByCategoryId(categoryId)
+        val hasIncompatibleTx = linkedTransactions.any { tx ->
+            !TransactionCategoryValidator.isTypeCompatible(newType, tx.type)
+        }
+        if (hasIncompatibleTx) {
+            throw InvalidCategoryException(
+                "Não é possível alterar o tipo da categoria porque existem transações incompatíveis vinculadas."
+            )
+        }
     }
 }

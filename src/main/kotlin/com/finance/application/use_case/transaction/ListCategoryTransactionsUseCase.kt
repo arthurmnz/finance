@@ -53,7 +53,7 @@ class ListCategoryTransactionsUseCase(
 
         val rawTransactions = if (category.level == CategoryLevel.GENERAL) {
             val ids = listOf(category.id) + childCategories.map { it.id }
-            transactionRepository.findByCategoryIdIn(ids)
+            transactionRepository.findByCategoryIdInOrGeneralCategoryId(ids, category.id)
         } else {
             transactionRepository.findByCategoryId(categoryId)
         }
@@ -63,8 +63,7 @@ class ListCategoryTransactionsUseCase(
             val groupAccountIds = accountRepository.findAllByGroupId(groupId).map { it.id }.toSet()
             val groupCardIds = creditCardRepository.findAllByGroupId(groupId).map { it.id }.toSet()
             rawTransactions.filter { tx ->
-                tx.accountId in groupAccountIds ||
-                    (tx.destinationAccountId != null && tx.destinationAccountId in groupAccountIds) ||
+                (tx.creditCardId == null && (tx.accountId in groupAccountIds || (tx.destinationAccountId != null && tx.destinationAccountId in groupAccountIds))) ||
                     (tx.creditCardId != null && tx.creditCardId in groupCardIds) ||
                     tx.responsibleId == authenticatedUserId
             }
@@ -72,10 +71,12 @@ class ListCategoryTransactionsUseCase(
             rawTransactions.filter { tx -> tx.responsibleId == authenticatedUserId }
         }
 
-        val filteredTransactions = scopedTransactions.filter {
-            (month == null || it.date.monthValue == month) &&
-                (year == null || it.date.year == year)
-        }
+        val filteredTransactions = scopedTransactions
+            .distinctBy { it.id }
+            .filter {
+                (month == null || it.date.monthValue == month) &&
+                    (year == null || it.date.year == year)
+            }
 
         if (filteredTransactions.isEmpty()) return emptyList()
 
@@ -84,7 +85,7 @@ class ListCategoryTransactionsUseCase(
         childCategories.forEach { knownCategories[it.id] = it }
 
         val missingCategoryIds = filteredTransactions
-            .mapNotNull { it.categoryId }
+            .flatMap { listOfNotNull(it.categoryId, it.generalCategoryId) }
             .distinct()
             .filter { !knownCategories.containsKey(it) }
         if (missingCategoryIds.isNotEmpty()) {
@@ -103,7 +104,8 @@ class ListCategoryTransactionsUseCase(
         return filteredTransactions.map { tx ->
             val cat = tx.categoryId?.let { knownCategories[it] }
             val parent = cat?.parentId?.let { knownCategories[it] }
-            TransactionDtoMapper.toResponse(tx, users[tx.responsibleId], cat, parent)
+            val generalCat = tx.generalCategoryId?.let { knownCategories[it] }
+            TransactionDtoMapper.toResponse(tx, users[tx.responsibleId], cat, parent, generalCat)
         }
     }
 }

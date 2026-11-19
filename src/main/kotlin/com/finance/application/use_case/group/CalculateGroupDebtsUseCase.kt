@@ -80,15 +80,14 @@ class CalculateGroupDebtsUseCase(
                 groupAccounts.flatMap { transactionRepository.findByDestinationAccountId(it.id) }
             ).distinctBy { it.id }
 
-        val allCatIds = (cardTransactionsByCard.values.flatten() + groupAccountTxs)
-            .mapNotNull { it.categoryId }
-            .distinct()
-        val (categoryMap, parentMap) = CategoryBatchLoader.loadWithParents(categoryRepository, allCatIds)
+        val allRelevantTxs = cardTransactionsByCard.values.flatten() + groupAccountTxs
+        val categoryMap = CategoryBatchLoader.loadForTransactions(categoryRepository, allRelevantTxs)
 
         fun toTxResponse(tx: TransactionEntity): TransactionResponse {
             val cat = tx.categoryId?.let { categoryMap[it] }
-            val parent = cat?.parentId?.let { parentMap[it] }
-            return TransactionDtoMapper.toResponse(tx, users[tx.responsibleId], cat, parent)
+            val parent = cat?.parentId?.let { categoryMap[it] }
+            val generalCat = tx.generalCategoryId?.let { categoryMap[it] }
+            return TransactionDtoMapper.toResponse(tx, users[tx.responsibleId], cat, parent, generalCat)
         }
 
         for ((card, txs) in cardTransactionsByCard) {

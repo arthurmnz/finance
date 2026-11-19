@@ -51,7 +51,7 @@ class CategorySeedAndMigrationIntegrationTest @Autowired constructor(
 ) {
 
     @Test
-    fun `should migrate legacy user and group categories idempotently and reassign general transactions`() {
+    fun `should migrate legacy user and group categories idempotently preserving direct general transactions and backfilling generalCategoryId`() {
         val user = userRepository.save(
             UserEntity(
                 firstName = Name("Legacy"),
@@ -190,6 +190,7 @@ class CategorySeedAndMigrationIntegrationTest @Autowired constructor(
 
         val userCats = categoryRepository.findByUserId(user.id)
         assertTrue(userCats.all { it.hierarchyMigrated })
+        assertTrue(userCats.none { it.name == "Outros (Moradia)" })
 
         val migratedMoradia = categoryRepository.findById(legacyMoradia.id)!!
         assertEquals("MORADIA", migratedMoradia.systemKey)
@@ -206,17 +207,19 @@ class CategorySeedAndMigrationIntegrationTest @Autowired constructor(
         assertEquals(CategoryLevel.SPECIFIC, migratedPet.level)
         assertEquals(outrosGeneral.id, migratedPet.parentId)
 
-        // Direct transaction on Moradia was moved to "Outros (Moradia)"
+        // Direct transaction on Moradia is PRESERVED directly on Moradia and backfilled with generalCategoryId
         val updatedTxMoradia = transactionRepository.findById(txOnMoradia.id)!!
-        assertTrue(updatedTxMoradia.categoryId != legacyMoradia.id)
-        val fallbackCategory = categoryRepository.findById(updatedTxMoradia.categoryId!!)!!
-        assertEquals("Outros (Moradia)", fallbackCategory.name)
-        assertEquals(CategoryLevel.SPECIFIC, fallbackCategory.level)
-        assertEquals(legacyMoradia.id, fallbackCategory.parentId)
+        assertEquals(legacyMoradia.id, updatedTxMoradia.categoryId)
+        assertEquals(legacyMoradia.id, updatedTxMoradia.generalCategoryId)
 
-        // Transactions on Agua & Pet preserved their categoryId
-        assertEquals(legacyAgua.id, transactionRepository.findById(txOnAgua.id)!!.categoryId)
-        assertEquals(legacyPet.id, transactionRepository.findById(txOnPet.id)!!.categoryId)
+        // Transactions on Agua & Pet preserved their categoryId and had generalCategoryId backfilled
+        val updatedTxAgua = transactionRepository.findById(txOnAgua.id)!!
+        assertEquals(legacyAgua.id, updatedTxAgua.categoryId)
+        assertEquals(legacyMoradia.id, updatedTxAgua.generalCategoryId)
+
+        val updatedTxPet = transactionRepository.findById(txOnPet.id)!!
+        assertEquals(legacyPet.id, updatedTxPet.categoryId)
+        assertEquals(outrosGeneral.id, updatedTxPet.generalCategoryId)
 
         // Group with legacy got "Outros" and "Churrasco" nested under it
         val groupCats = categoryRepository.findByGroupId(groupWithLegacy.id)
@@ -235,10 +238,12 @@ class CategorySeedAndMigrationIntegrationTest @Autowired constructor(
         assertEquals(countBeforeSecondRun, categoryRepository.findByUserId(user.id).size)
         assertEquals(2, categoryRepository.findByGroupId(groupWithLegacy.id).size)
 
-        // Delete a SPECIFIC category and verify transaction.categoryId is cleared to null
+        // Delete a SPECIFIC category and verify transaction falls back to parent GENERAL
         deleteCategoryUseCase.execute(user.id, legacyPet.id)
         assertNull(categoryRepository.findById(legacyPet.id))
-        assertNull(transactionRepository.findById(txOnPet.id)!!.categoryId)
+        val fallbackPetTx = transactionRepository.findById(txOnPet.id)!!
+        assertEquals(outrosGeneral.id, fallbackPetTx.categoryId)
+        assertEquals(outrosGeneral.id, fallbackPetTx.generalCategoryId)
 
         // Delete a default category and restore missing defaults via SeedDefaultCategoriesUseCase
         deleteCategoryUseCase.execute(user.id, legacyAgua.id)
@@ -257,6 +262,102 @@ class CategorySeedAndMigrationIntegrationTest @Autowired constructor(
         // List user categories with level filter
         val generalsOnly = listUserCategoriesUseCase.execute(user.id, level = CategoryLevel.GENERAL)
         assertEquals(DefaultCategoryCatalog.generals.size, generalsOnly.size)
+    }
+
+    @Test
+    fun `should backfill generalCategoryId for pre-existing transactions and clear references when deleting leaf GENERAL`() {
+        val user = userRepository.save(
+            UserEntity(
+                firstName = Name("Backfill"),
+                lastName = Name("User"),
+                email = Email("backfill.${UUID.randomUUID()}@finance.com"),
+                passwordHash = PasswordHash("hash")
+            )
+        )
+        val account = accountRepository.save(
+            AccountEntity(
+                ownerId = user.id,
+                name = "Conta",
+                startBalance = 50000,
+                type = AccountType.CHECKING,
+                tax = null
+            )
+        )
+        categorySeedService.seedDefaultsForUser(user.id)
+
+        val moradia = categoryRepository.findByUserId(user.id).first { it.systemKey == "MORADIA" }
+        val aluguel = categoryRepository.findByUserId(user.id).first { it.systemKey == "MORADIA_ALUGUEL" }
+        val customLeafGeneral = categoryRepository.save(
+            CategoryEntity(
+                name = "Viagens Especiais",
+                description = null,
+                userId = user.id,
+                groupId = null,
+                type = CategoryType.EXPENSE,
+                color = "#123456",
+                icon = "✈️",
+                level = CategoryLevel.GENERAL
+            )
+        )
+
+        val txGeneralOnlyNullBackfill = transactionRepository.save(
+            TransactionEntity(
+                title = "Manutenção Geral",
+                amount = 10000,
+                date = LocalDate.of(2026, 6, 1),
+                responsibleId = user.id,
+                accountId = account.id,
+                type = TransactionType.EXPENSE,
+                destinationAccountId = null,
+                categoryId = moradia.id,
+                status = TransactionStatus.COMPLETED,
+                generalCategoryId = null
+            )
+        )
+        val txSpecificNullBackfill = transactionRepository.save(
+            TransactionEntity(
+                title = "Aluguel Junho",
+                amount = 200000,
+                date = LocalDate.of(2026, 6, 2),
+                responsibleId = user.id,
+                accountId = account.id,
+                type = TransactionType.EXPENSE,
+                destinationAccountId = null,
+                categoryId = aluguel.id,
+                status = TransactionStatus.COMPLETED,
+                generalCategoryId = null
+            )
+        )
+        val txOnLeafGeneral = transactionRepository.save(
+            TransactionEntity(
+                title = "Passagem",
+                amount = 80000,
+                date = LocalDate.of(2026, 6, 3),
+                responsibleId = user.id,
+                accountId = account.id,
+                type = TransactionType.EXPENSE,
+                destinationAccountId = null,
+                categoryId = customLeafGeneral.id,
+                status = TransactionStatus.COMPLETED,
+                generalCategoryId = customLeafGeneral.id
+            )
+        )
+
+        categorySeedService.backfillTransactionGeneralCategories()
+
+        val reloadedGeneralTx = transactionRepository.findById(txGeneralOnlyNullBackfill.id)!!
+        assertEquals(moradia.id, reloadedGeneralTx.categoryId)
+        assertEquals(moradia.id, reloadedGeneralTx.generalCategoryId)
+
+        val reloadedSpecificTx = transactionRepository.findById(txSpecificNullBackfill.id)!!
+        assertEquals(aluguel.id, reloadedSpecificTx.categoryId)
+        assertEquals(moradia.id, reloadedSpecificTx.generalCategoryId)
+
+        // Deleting leaf GENERAL clears both categoryId and generalCategoryId
+        deleteCategoryUseCase.execute(user.id, customLeafGeneral.id)
+        val reloadedLeafTx = transactionRepository.findById(txOnLeafGeneral.id)!!
+        assertNull(reloadedLeafTx.categoryId)
+        assertNull(reloadedLeafTx.generalCategoryId)
     }
 
     @Test

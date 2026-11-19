@@ -27,6 +27,7 @@ import java.time.LocalDate
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 
 class ListCardTransactionsUseCaseTest {
 
@@ -147,6 +148,37 @@ class ListCardTransactionsUseCaseTest {
         assertEquals(CategoryLevel.SPECIFIC, octList[0].category?.level)
         assertEquals(catAlimentacao.id, octList[0].category?.parentId)
         assertEquals("Alimentação", octList[0].category?.parent?.name)
+        assertEquals(catAlimentacao.id, octList[0].generalCategoryId)
+        assertEquals(catFood.id, octList[0].specificCategoryId)
+        assertEquals("Alimentação", octList[0].generalCategory?.name)
+        assertEquals("Restaurante", octList[0].specificCategory?.name)
+
+        // Compra em Dezembro usando apenas categoria GENERAL
+        val txDecGeneralOnly = TransactionEntity(
+            title = "Feira Geral",
+            amount = 8000,
+            date = LocalDate.of(2026, 12, 5),
+            responsibleId = user.id,
+            accountId = card.accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = catAlimentacao.id,
+            status = TransactionStatus.COMPLETED,
+            creditCardId = card.id,
+            invoiceMonth = 12,
+            invoiceYear = 2026,
+            generalCategoryId = catAlimentacao.id
+        )
+        `when`(transactionRepository.findByCreditCardId(card.id)).thenReturn(listOf(txOct, txNov, txDecGeneralOnly))
+
+        val decList = useCase.execute(card.id, month = 12, year = 2026, authenticatedUserId = user.id)
+        assertEquals(1, decList.size)
+        assertEquals(catAlimentacao.id, decList[0].categoryId)
+        assertEquals(catAlimentacao.id, decList[0].generalCategoryId)
+        assertNull(decList[0].specificCategoryId)
+        assertEquals("Alimentação", decList[0].generalCategory?.name)
+        assertNull(decList[0].specificCategory)
+        assertEquals("Alimentação", decList[0].category?.name)
     }
 
     @Test

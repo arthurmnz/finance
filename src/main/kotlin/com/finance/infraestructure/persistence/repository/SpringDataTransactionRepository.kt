@@ -13,6 +13,9 @@ interface SpringDataTransactionRepository : JpaRepository<TransactionJpaEntity, 
     fun findByAccountId(accountId: UUID): List<TransactionJpaEntity>
     fun findByCategoryId(categoryId: UUID): List<TransactionJpaEntity>
     fun findByCategoryIdIn(categoryIds: Collection<UUID>): List<TransactionJpaEntity>
+    fun findByCategoryIdInOrGeneralCategoryId(categoryIds: Collection<UUID>, generalCategoryId: UUID): List<TransactionJpaEntity>
+    fun findByGeneralCategoryId(generalCategoryId: UUID): List<TransactionJpaEntity>
+    fun findByCategoryIdIsNotNullAndGeneralCategoryIdIsNull(): List<TransactionJpaEntity>
     fun findByDestinationAccountId(destinationAccountId: UUID): List<TransactionJpaEntity>
     fun findByCreditCardId(creditCardId: UUID): List<TransactionJpaEntity>
     fun findByCreditCardInvoiceId(creditCardInvoiceId: UUID): List<TransactionJpaEntity>
@@ -21,6 +24,26 @@ interface SpringDataTransactionRepository : JpaRepository<TransactionJpaEntity, 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE TransactionJpaEntity t SET t.categoryId = null, t.updatedAt = :now WHERE t.categoryId = :categoryId")
     fun clearCategoryId(@Param("categoryId") categoryId: UUID, @Param("now") now: LocalDateTime = LocalDateTime.now()): Int
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE TransactionJpaEntity t SET t.categoryId = null, t.generalCategoryId = null, t.updatedAt = :now WHERE t.categoryId = :categoryId OR t.generalCategoryId = :categoryId")
+    fun clearCategoryReferences(@Param("categoryId") categoryId: UUID, @Param("now") now: LocalDateTime = LocalDateTime.now()): Int
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE TransactionJpaEntity t SET t.categoryId = :generalCategoryId, t.generalCategoryId = :generalCategoryId, t.updatedAt = :now WHERE t.categoryId = :specificCategoryId")
+    fun fallbackSpecificCategoryToGeneral(
+        @Param("specificCategoryId") specificCategoryId: UUID,
+        @Param("generalCategoryId") generalCategoryId: UUID,
+        @Param("now") now: LocalDateTime = LocalDateTime.now()
+    ): Int
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE TransactionJpaEntity t SET t.generalCategoryId = :newGeneralCategoryId, t.updatedAt = :now WHERE t.categoryId = :categoryId")
+    fun updateGeneralCategoryForCategory(
+        @Param("categoryId") categoryId: UUID,
+        @Param("newGeneralCategoryId") newGeneralCategoryId: UUID,
+        @Param("now") now: LocalDateTime = LocalDateTime.now()
+    ): Int
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE TransactionJpaEntity t SET t.categoryId = :toCategoryId, t.updatedAt = :now WHERE t.categoryId = :fromCategoryId")

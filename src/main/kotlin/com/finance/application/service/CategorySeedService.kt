@@ -47,6 +47,8 @@ class CategorySeedService(
                 migrateGroupCategories(groupId, legacyGroupCats)
             }
         }
+
+        backfillTransactionGeneralCategories()
     }
 
     private fun migrateUserCategories(userId: UUID) {
@@ -83,13 +85,6 @@ class CategorySeedService(
         if (toSave.isNotEmpty()) {
             categoryRepository.saveAll(toSave)
         }
-
-        val refreshedUserCategories = categoryRepository.findByUserId(userId)
-        reassignDirectTransactionsOnGeneralCategories(
-            categories = refreshedUserCategories,
-            userId = userId,
-            groupId = null
-        )
     }
 
     private fun migrateGroupCategories(groupId: UUID, legacyGroupCats: List<CategoryEntity>) {
@@ -163,58 +158,40 @@ class CategorySeedService(
         if (toSave.isNotEmpty()) {
             categoryRepository.saveAll(toSave)
         }
-
-        val refreshedGroupCategories = categoryRepository.findByGroupId(groupId)
-        reassignDirectTransactionsOnGeneralCategories(
-            categories = refreshedGroupCategories,
-            userId = null,
-            groupId = groupId
-        )
     }
 
-    private fun reassignDirectTransactionsOnGeneralCategories(
-        categories: List<CategoryEntity>,
-        userId: UUID?,
-        groupId: UUID?
-    ) {
-        val generals = categories.filter { it.level == CategoryLevel.GENERAL }
-        val childrenByParent = categories.filter { it.parentId != null }.groupBy { it.parentId!! }
+    @Transactional
+    fun backfillTransactionGeneralCategories() {
+        val pendingTransactions = transactionRepository.findByCategoryIdIsNotNullAndGeneralCategoryIdIsNull()
+        if (pendingTransactions.isEmpty()) return
 
-        for (general in generals) {
-            val directTxs = transactionRepository.findByCategoryId(general.id)
-            if (directTxs.isEmpty()) continue
+        val categoryIds = pendingTransactions.mapNotNull { it.categoryId }.distinct()
+        val categoriesById = categoryRepository.findByIdIn(categoryIds).associateBy { it.id }
 
-            val fallbackName = "Outros (${general.name})"
-            val normalizedFallback = DefaultCategoryCatalog.normalizeName(fallbackName)
-            val existingChildren = childrenByParent[general.id].orEmpty()
-            val fallbackSpecific = existingChildren.firstOrNull {
-                DefaultCategoryCatalog.normalizeName(it.name) == normalizedFallback &&
-                    (general.type == CategoryType.BOTH || it.type == general.type)
-            } ?: categoryRepository.save(
-                CategoryEntity(
-                    name = fallbackName,
-                    description = "Subcategoria gerada automaticamente na migração de ${general.name}",
-                    userId = userId,
-                    groupId = groupId,
-                    type = general.type,
-                    color = general.color,
-                    icon = general.icon,
-                    level = CategoryLevel.SPECIFIC,
-                    parentId = general.id,
-                    systemKey = null,
-                    isDefault = false,
-                    hierarchyMigrated = true
-                )
+        val updated = pendingTransactions.mapNotNull { tx ->
+            val cat = tx.categoryId?.let { categoriesById[it] } ?: return@mapNotNull null
+            val resolvedGeneralId = if (cat.level == CategoryLevel.GENERAL) {
+                cat.id
+            } else {
+                cat.parentId ?: cat.id
+            }
+            tx.update(
+                newTitle = tx.title,
+                newAmount = tx.amount,
+                newDate = tx.date,
+                newCategoryId = tx.categoryId,
+                newStatus = tx.status,
+                newInvoiceMonth = tx.invoiceMonth,
+                newInvoiceYear = tx.invoiceYear,
+                newGeneratesDebt = tx.generatesDebt,
+                newGeneralCategoryId = resolvedGeneralId
             )
+            tx
+        }
 
-            transactionRepository.reassignCategory(general.id, fallbackSpecific.id)
-            logger.info(
-                "Reatribuídas {} transações legadas da categoria geral '{}' ({}) para '{}'.",
-                directTxs.size,
-                general.name,
-                general.id,
-                fallbackSpecific.name
-            )
+        if (updated.isNotEmpty()) {
+            transactionRepository.saveAll(updated)
+            logger.info("Backfill de generalCategoryId concluído para {} transações.", updated.size)
         }
     }
 

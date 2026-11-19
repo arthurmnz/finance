@@ -47,7 +47,8 @@ class RecurrenceExpanderJob(
                     creditCardId = latest.creditCardId,
                     invoiceMonth = ym?.monthValue,
                     invoiceYear = ym?.year,
-                    generatesDebt = latest.generatesDebt
+                    generatesDebt = latest.generatesDebt,
+                    generalCategoryId = latest.generalCategoryId
                 )
                 transactionsToSave.add(newTransaction)
                 currentDate = calculateNextDate(currentDate, frequency, interval)

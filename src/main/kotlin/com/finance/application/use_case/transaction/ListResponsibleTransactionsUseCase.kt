@@ -27,15 +27,15 @@ class ListResponsibleTransactionsUseCase(
             matchMonth && matchYear
         }
 
-        val categoryIds = filtered.mapNotNull { it.categoryId }.distinct()
-        val (categoryMap, parentMap) = CategoryBatchLoader.loadWithParents(categoryRepository, categoryIds)
+        val categoryMap = CategoryBatchLoader.loadForTransactions(categoryRepository, filtered)
 
         return filtered
             .sortedByDescending { it.date }
             .map { tx ->
-                val cat = categoryMap[tx.categoryId]
-                val parent = cat?.parentId?.let { parentMap[it] }
-                TransactionDtoMapper.toResponse(tx, user, cat, parent)
+                val cat = tx.categoryId?.let { categoryMap[it] }
+                val parent = cat?.parentId?.let { categoryMap[it] }
+                val generalCat = tx.generalCategoryId?.let { categoryMap[it] }
+                TransactionDtoMapper.toResponse(tx, user, cat, parent, generalCat)
             }
     }
 }

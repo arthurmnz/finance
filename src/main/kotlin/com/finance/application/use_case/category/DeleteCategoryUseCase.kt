@@ -1,6 +1,7 @@
 package com.finance.application.use_case.category
 
 import com.finance.application.service.GroupService
+import com.finance.domain.enum.CategoryLevel
 import com.finance.domain.exception.CategoryNotFoundException
 import com.finance.domain.exception.InvalidCategoryException
 import com.finance.domain.exception.UnauthorizedException
@@ -35,7 +36,16 @@ class DeleteCategoryUseCase(
             )
         }
 
-        transactionRepository.clearCategoryId(categoryId)
+        if (category.level == CategoryLevel.SPECIFIC) {
+            val parentId = category.parentId
+            if (parentId != null) {
+                transactionRepository.fallbackSpecificCategoryToGeneral(categoryId, parentId)
+            } else {
+                transactionRepository.clearCategoryReferences(categoryId)
+            }
+        } else {
+            transactionRepository.clearCategoryReferences(categoryId)
+        }
         categoryRepository.delete(categoryId)
     }
 }

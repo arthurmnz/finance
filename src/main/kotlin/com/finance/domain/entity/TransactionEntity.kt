@@ -30,7 +30,8 @@ class TransactionEntity(
     val totalInstallments: Int? = null,
     generatesDebt: Boolean = false,
     val createdAt: LocalDateTime = LocalDateTime.now(),
-    updatedAt: LocalDateTime = LocalDateTime.now()
+    updatedAt: LocalDateTime = LocalDateTime.now(),
+    generalCategoryId: UUID? = null
 ) {
     var title: String = title
         private set
@@ -54,6 +55,9 @@ class TransactionEntity(
         private set
 
     var categoryId: UUID? = categoryId
+        private set
+
+    var generalCategoryId: UUID? = generalCategoryId
         private set
 
     var status: TransactionStatus = status
@@ -110,7 +114,8 @@ class TransactionEntity(
         invoiceYear: Int? = null,
         installmentNumber: Int? = null,
         totalInstallments: Int? = null,
-        generatesDebt: Boolean = false
+        generatesDebt: Boolean = false,
+        generalCategoryId: UUID? = null
     ) : this(
         id = UUID.randomUUID(),
         title = title,
@@ -134,7 +139,8 @@ class TransactionEntity(
         totalInstallments = totalInstallments,
         generatesDebt = generatesDebt,
         createdAt = LocalDateTime.now(),
-        updatedAt = LocalDateTime.now()
+        updatedAt = LocalDateTime.now(),
+        generalCategoryId = generalCategoryId
     )
 
     fun update(
@@ -145,7 +151,8 @@ class TransactionEntity(
         newStatus: TransactionStatus,
         newInvoiceMonth: Int? = this.invoiceMonth,
         newInvoiceYear: Int? = this.invoiceYear,
-        newGeneratesDebt: Boolean = this.generatesDebt
+        newGeneratesDebt: Boolean = this.generatesDebt,
+        newGeneralCategoryId: UUID? = this.generalCategoryId
     ) {
         if (newAmount <= 0) {
             throw InvalidTransactionException("O valor da transação deve ser maior que zero.")
@@ -159,6 +166,7 @@ class TransactionEntity(
         this.amount = newAmount
         this.date = newDate
         this.categoryId = newCategoryId
+        this.generalCategoryId = newGeneralCategoryId
         this.status = newStatus
         this.invoiceMonth = newInvoiceMonth
         this.invoiceYear = newInvoiceYear

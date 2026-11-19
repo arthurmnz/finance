@@ -83,7 +83,7 @@ class DeleteUserByAdminUseCase(
         val allCategoryIds = (userCategoryIds + ownedGroupCategoryIds).distinct()
         if (allCategoryIds.isNotEmpty()) {
             entityManager.createQuery(
-                "DELETE FROM TransactionJpaEntity t WHERE t.categoryId IN :catIds"
+                "DELETE FROM TransactionJpaEntity t WHERE t.categoryId IN :catIds OR t.generalCategoryId IN :catIds"
             ).setParameter("catIds", allCategoryIds).executeUpdate()
         }
 

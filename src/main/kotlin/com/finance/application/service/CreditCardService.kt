@@ -348,11 +348,7 @@ class CreditCardService(
             CreditCardInvoiceResponse.ResponsibleSummary(user = toUserSummary(u), amount = sum)
         }.sortedByDescending { it.amount }
 
-        val invoiceCategoryIds = txs.mapNotNull { it.categoryId }.distinct()
-        val (invoiceCategoryMap, invoiceParentMap) = CategoryBatchLoader.loadWithParents(
-            categoryRepository,
-            invoiceCategoryIds
-        )
+        val invoiceCategoryMap = CategoryBatchLoader.loadForTransactions(categoryRepository, txs)
 
         val paymentsResponse = allPayments.sortedByDescending { it.date }.map {
             TransactionDtoMapper.toResponse(it, users[it.responsibleId])
@@ -372,9 +368,10 @@ class CreditCardService(
             remainingAmount = remaining,
             status = status,
             transactions = txs.map { tx ->
-                val cat = invoiceCategoryMap[tx.categoryId]
-                val parent = cat?.parentId?.let { invoiceParentMap[it] }
-                TransactionDtoMapper.toResponse(tx, users[tx.responsibleId], cat, parent)
+                val cat = tx.categoryId?.let { invoiceCategoryMap[it] }
+                val parent = cat?.parentId?.let { invoiceCategoryMap[it] }
+                val generalCat = tx.generalCategoryId?.let { invoiceCategoryMap[it] }
+                TransactionDtoMapper.toResponse(tx, users[tx.responsibleId], cat, parent, generalCat)
             },
             byResponsible = byResponsible,
             payments = paymentsResponse

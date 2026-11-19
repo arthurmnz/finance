@@ -45,6 +45,9 @@ class TransactionJpaEntity(
     @Column(name = "category_id")
     var categoryId: UUID?,
 
+    @Column(name = "general_category_id")
+    var generalCategoryId: UUID? = null,
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 50)
     var status: TransactionStatus,

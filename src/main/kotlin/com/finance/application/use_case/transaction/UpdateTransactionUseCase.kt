@@ -75,29 +75,28 @@ class UpdateTransactionUseCase(
             }
         }
 
-        val validatedCategory = request.categoryId?.let { catId ->
-            val cat = TransactionCategoryValidator.validateForTransaction(
-                categoryRepository = categoryRepository,
-                groupMemberRepository = groupMemberRepository,
-                categoryId = catId,
-                userId = userId,
-                transactionType = transaction.type
-            )
-            if (cat.groupId != null) {
-                val involvedGroupIds = buildList {
-                    val cardId = transaction.creditCardId
-                    if (cardId != null) {
-                        add(creditCardRepository.findById(cardId)?.groupId)
-                    } else {
-                        add(accountRepository.findById(transaction.accountId)?.groupId)
-                        if (transaction.type == TransactionType.TRANSFER) {
-                            add(transaction.destinationAccountId?.let { accountRepository.findById(it)?.groupId })
-                        }
+        val resolvedCategories = TransactionCategoryValidator.validateSelection(
+            categoryRepository = categoryRepository,
+            groupMemberRepository = groupMemberRepository,
+            userId = userId,
+            transactionType = transaction.type,
+            categoryId = request.categoryId,
+            generalCategoryId = request.generalCategoryId,
+            specificCategoryId = request.specificCategoryId
+        )
+        if (resolvedCategories.allCategories.any { it.groupId != null }) {
+            val involvedGroupIds = buildList {
+                val cardId = transaction.creditCardId
+                if (cardId != null) {
+                    add(creditCardRepository.findById(cardId)?.groupId)
+                } else {
+                    add(accountRepository.findById(transaction.accountId)?.groupId)
+                    if (transaction.type == TransactionType.TRANSFER) {
+                        add(transaction.destinationAccountId?.let { accountRepository.findById(it)?.groupId })
                     }
                 }
-                TransactionCategoryValidator.validateGroupScope(cat, involvedGroupIds)
             }
-            cat
+            TransactionCategoryValidator.validateGroupScope(resolvedCategories, involvedGroupIds)
         }
 
         val transactionsToUpdate = mutableListOf(transaction)
@@ -170,9 +169,10 @@ class UpdateTransactionUseCase(
                     newTitle = request.title,
                     newAmount = request.amount,
                     newDate = targetDate,
-                    newCategoryId = request.categoryId,
+                    newCategoryId = resolvedCategories.effectiveCategoryId,
                     newStatus = targetStatus,
-                    newGeneratesDebt = targetGeneratesDebt
+                    newGeneratesDebt = targetGeneratesDebt,
+                    newGeneralCategoryId = resolvedCategories.effectiveGeneralCategoryId
                 )
 
                 if (invoice != null) {
@@ -206,20 +206,27 @@ class UpdateTransactionUseCase(
                     newTitle = request.title,
                     newAmount = request.amount,
                     newDate = targetDate,
-                    newCategoryId = request.categoryId,
+                    newCategoryId = resolvedCategories.effectiveCategoryId,
                     newStatus = tx.status,
                     newInvoiceMonth = newMonth,
-                    newInvoiceYear = newYear
+                    newInvoiceYear = newYear,
+                    newGeneralCategoryId = resolvedCategories.effectiveGeneralCategoryId
                 )
             }
         }
 
         val responsible = userRepository.findById(userId)
-        val targetCategory = validatedCategory
-        val targetParentCategory = targetCategory?.parentId?.let { categoryRepository.findById(it) }
+        val responseCategory = resolvedCategories.specificCategory ?: resolvedCategories.generalCategory
+        val responseParent = if (resolvedCategories.specificCategory != null) resolvedCategories.generalCategory else null
         val savedTransactions = transactionRepository.saveAll(transactionsToUpdate)
         val responseList = savedTransactions.map {
-            TransactionDtoMapper.toResponse(it, responsible, targetCategory, targetParentCategory)
+            TransactionDtoMapper.toResponse(
+                entity = it,
+                responsibleUser = responsible,
+                category = responseCategory,
+                parentCategory = responseParent,
+                generalCategoryEntity = resolvedCategories.generalCategory
+            )
         }.toMutableList()
 
         if (shouldRegenerateFutures && request.isRecurring == true) {
@@ -240,21 +247,28 @@ class UpdateTransactionUseCase(
                     accountId = transaction.accountId,
                     type = transaction.type,
                     destinationAccountId = transaction.destinationAccountId,
-                    categoryId = request.categoryId,
+                    categoryId = resolvedCategories.effectiveCategoryId,
                     status = if (transaction.creditCardId != null) TransactionStatus.COMPLETED else TransactionStatus.PENDING,
                     recurrenceGroupId = transaction.recurrenceGroupId,
                     recurrenceFrequency = freq,
                     recurrenceInterval = interval,
                     isInfinite = isInf,
                     creditCardId = transaction.creditCardId,
-                    generatesDebt = request.generatesDebt ?: transaction.generatesDebt
+                    generatesDebt = request.generatesDebt ?: transaction.generatesDebt,
+                    generalCategoryId = resolvedCategories.effectiveGeneralCategoryId
                 )
                 newlyGenerated.add(newTx)
             }
             if (newlyGenerated.isNotEmpty()) {
                 val savedNewFutures = transactionRepository.saveAll(newlyGenerated)
                 responseList.addAll(savedNewFutures.map {
-                    TransactionDtoMapper.toResponse(it, responsible, targetCategory, targetParentCategory)
+                    TransactionDtoMapper.toResponse(
+                        entity = it,
+                        responsibleUser = responsible,
+                        category = responseCategory,
+                        parentCategory = responseParent,
+                        generalCategoryEntity = resolvedCategories.generalCategory
+                    )
                 })
             }
         }

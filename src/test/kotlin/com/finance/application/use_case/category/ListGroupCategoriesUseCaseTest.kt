@@ -1,9 +1,11 @@
 package com.finance.application.use_case.category
 
+import com.finance.domain.entity.AccountEntity
 import com.finance.domain.entity.CategoryEntity
 import com.finance.domain.entity.CreditCardEntity
 import com.finance.domain.entity.GroupEntity
 import com.finance.domain.entity.TransactionEntity
+import com.finance.domain.enum.AccountType
 import com.finance.domain.enum.CategoryLevel
 import com.finance.domain.enum.CategoryType
 import com.finance.domain.enum.TransactionStatus
@@ -150,9 +152,20 @@ class ListGroupCategoriesUseCaseTest {
             level = CategoryLevel.SPECIFIC,
             parentId = catAlimentacao.id
         )
+        val catSaudePessoal = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Saúde",
+            description = null,
+            userId = userBId,
+            groupId = null,
+            type = CategoryType.EXPENSE,
+            color = "#F4F4F6",
+            icon = "🏥",
+            level = CategoryLevel.GENERAL
+        )
 
-        `when`(categoryRepository.findByIdIn(listOf(catUber.id, catIfood.id))).thenReturn(listOf(catUber, catIfood))
-        `when`(categoryRepository.findByIdIn(listOf(catIfood.id, catUber.id))).thenReturn(listOf(catUber, catIfood))
+        `when`(categoryRepository.findByIdIn(listOf(catUber.id, catIfood.id, catSaudePessoal.id)))
+            .thenReturn(listOf(catUber, catIfood, catSaudePessoal))
         `when`(categoryRepository.findByIdIn(listOf(catTransporte.id, catAlimentacao.id))).thenReturn(listOf(catTransporte, catAlimentacao))
         `when`(categoryRepository.findByIdIn(listOf(catAlimentacao.id, catTransporte.id))).thenReturn(listOf(catTransporte, catAlimentacao))
 
@@ -180,15 +193,28 @@ class ListGroupCategoriesUseCaseTest {
             status = TransactionStatus.COMPLETED,
             creditCardId = card.id
         )
-        `when`(transactionRepository.findByCreditCardId(card.id)).thenReturn(listOf(tx1, tx2))
+        val tx3GeneralOnly = TransactionEntity(
+            title = "Consulta Geral",
+            amount = 15000,
+            date = LocalDate.of(2026, 10, 22),
+            responsibleId = userBId,
+            accountId = card.accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = catSaudePessoal.id,
+            status = TransactionStatus.COMPLETED,
+            creditCardId = card.id,
+            generalCategoryId = catSaudePessoal.id
+        )
+        `when`(transactionRepository.findByCreditCardId(card.id)).thenReturn(listOf(tx1, tx2, tx3GeneralOnly))
 
         val result = useCase.execute(groupId, userBId)
 
         // Deve incluir: Moradia (grupo), Condomínio (grupo), Uber (pessoal), iFood (pessoal),
-        // Transporte (pai pessoal incluído) e Alimentação (pai pessoal incluído)
-        assertEquals(6, result.size)
+        // Transporte (pai pessoal incluído), Alimentação (pai pessoal incluído) e Saúde (geral pessoal usada diretamente)
+        assertEquals(7, result.size)
         val names = result.map { it.name }
-        assertTrue(names.containsAll(listOf("Moradia", "Condomínio", "Uber", "iFood", "Transporte", "Alimentação")))
+        assertTrue(names.containsAll(listOf("Moradia", "Condomínio", "Uber", "iFood", "Transporte", "Alimentação", "Saúde")))
 
         val uberDto = result.first { it.id == catUber.id }
         assertEquals(CategoryLevel.SPECIFIC, uberDto.level)
@@ -196,10 +222,10 @@ class ListGroupCategoriesUseCaseTest {
         assertNotNull(uberDto.parent)
         assertEquals("Transporte", uberDto.parent.name)
 
-        // Filtro por level = GENERAL deve incluir os pais pessoais também
+        // Filtro por level = GENERAL deve incluir os pais pessoais e gerais diretas usadas no grupo
         val generalsOnly = useCase.execute(groupId, userBId, level = CategoryLevel.GENERAL)
-        assertEquals(3, generalsOnly.size)
-        assertTrue(generalsOnly.map { it.name }.containsAll(listOf("Moradia", "Transporte", "Alimentação")))
+        assertEquals(4, generalsOnly.size)
+        assertTrue(generalsOnly.map { it.name }.containsAll(listOf("Moradia", "Transporte", "Alimentação", "Saúde")))
 
         // Filtro por parentId = catTransporte.id
         val transporteChildren = useCase.execute(groupId, userBId, parentId = catTransporte.id)
@@ -232,5 +258,89 @@ class ListGroupCategoriesUseCaseTest {
             useCase.execute(groupId, userId)
         }
         assertEquals("Você não tem acesso a este grupo.", exception.message)
+    }
+
+    @Test
+    fun `should ignore personal credit card transactions when scanning group account transactions`() {
+        val groupId = UUID.randomUUID()
+        val userAId = UUID.randomUUID()
+        val userBId = UUID.randomUUID()
+        val personalCardId = UUID.randomUUID()
+
+        val group = GroupEntity(id = groupId, name = "Casa")
+        `when`(groupRepository.findById(groupId)).thenReturn(group)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(groupId, userBId)).thenReturn(true)
+        `when`(categoryRepository.findByGroupId(groupId)).thenReturn(emptyList())
+        `when`(creditCardRepository.findAllByGroupId(groupId)).thenReturn(emptyList())
+
+        val groupAcc = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userAId,
+            name = "Conta Grupo",
+            startBalance = 50000,
+            balance = 50000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = groupId
+        )
+        `when`(accountRepository.findAllByGroupId(groupId)).thenReturn(listOf(groupAcc))
+
+        val bankCat = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Luz",
+            description = null,
+            userId = userAId,
+            groupId = null,
+            type = CategoryType.EXPENSE,
+            color = "#7D39EB",
+            icon = "⚡",
+            level = CategoryLevel.GENERAL
+        )
+        val personalCardCat = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Segredo Pessoal",
+            description = null,
+            userId = userAId,
+            groupId = null,
+            type = CategoryType.EXPENSE,
+            color = "#000000",
+            icon = "🔒",
+            level = CategoryLevel.GENERAL
+        )
+
+        val directBankTx = TransactionEntity(
+            title = "Conta de Luz",
+            amount = 15000,
+            date = LocalDate.of(2026, 10, 15),
+            responsibleId = userAId,
+            accountId = groupAcc.id,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = bankCat.id,
+            status = TransactionStatus.COMPLETED,
+            creditCardId = null,
+            generalCategoryId = bankCat.id
+        )
+        val personalCardTxOnGroupAcc = TransactionEntity(
+            title = "Compra Cartão Pessoal",
+            amount = 9900,
+            date = LocalDate.of(2026, 10, 16),
+            responsibleId = userAId,
+            accountId = groupAcc.id,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = personalCardCat.id,
+            status = TransactionStatus.COMPLETED,
+            creditCardId = personalCardId,
+            generalCategoryId = personalCardCat.id
+        )
+
+        `when`(transactionRepository.findByAccountId(groupAcc.id))
+            .thenReturn(listOf(directBankTx, personalCardTxOnGroupAcc))
+        `when`(categoryRepository.findByIdIn(listOf(bankCat.id))).thenReturn(listOf(bankCat))
+
+        val result = useCase.execute(groupId, userBId)
+        assertEquals(1, result.size)
+        assertEquals("Luz", result[0].name)
     }
 }
