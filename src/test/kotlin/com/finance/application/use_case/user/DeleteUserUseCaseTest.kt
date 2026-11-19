@@ -13,6 +13,8 @@ import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.GroupInvitationRepository
 import com.finance.domain.repository.GroupMemberRepository
 import com.finance.domain.repository.GroupRepository
+import com.finance.domain.repository.JointAccountMemberRepository
+import com.finance.domain.repository.TransactionRepository
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -30,6 +32,8 @@ class DeleteUserUseCaseTest {
     private lateinit var groupInvitationRepository: GroupInvitationRepository
     private lateinit var accountRepository: AccountRepository
     private lateinit var accountGroupRequestRepository: AccountGroupRequestRepository
+    private lateinit var jointAccountMemberRepository: JointAccountMemberRepository
+    private lateinit var transactionRepository: TransactionRepository
     private lateinit var deleteUserUseCase: DeleteUserUseCase
 
     @BeforeEach
@@ -41,6 +45,8 @@ class DeleteUserUseCaseTest {
         groupInvitationRepository = mock(GroupInvitationRepository::class.java)
         accountRepository = mock(AccountRepository::class.java)
         accountGroupRequestRepository = mock(AccountGroupRequestRepository::class.java)
+        jointAccountMemberRepository = mock(JointAccountMemberRepository::class.java)
+        transactionRepository = mock(TransactionRepository::class.java)
 
         deleteUserUseCase = DeleteUserUseCase(
             userRepository = userRepository,
@@ -50,6 +56,8 @@ class DeleteUserUseCaseTest {
             groupInvitationRepository = groupInvitationRepository,
             accountRepository = accountRepository,
             accountGroupRequestRepository = accountGroupRequestRepository,
+            jointAccountMemberRepository = jointAccountMemberRepository,
+            transactionRepository = transactionRepository,
         )
     }
 

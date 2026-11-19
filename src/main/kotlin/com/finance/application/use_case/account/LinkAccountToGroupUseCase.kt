@@ -2,6 +2,7 @@ package com.finance.application.use_case.account
 
 import com.finance.application.dto.account.AccountResponse
 import com.finance.application.mapper.AccountDtoMapper
+import com.finance.application.service.AccountAccessService
 import com.finance.application.service.GroupService
 import com.finance.domain.entity.AccountGroupRequestEntity
 import com.finance.domain.enum.AccountGroupRequestStatus
@@ -20,13 +21,21 @@ class LinkAccountToGroupUseCase(
     private val accountRepository: AccountRepository,
     private val groupService: GroupService,
     private val accountGroupRequestRepository: AccountGroupRequestRepository,
-    private val accountDtoMapper: AccountDtoMapper
+    private val accountDtoMapper: AccountDtoMapper,
+    private val accountAccessService: AccountAccessService
 ) {
 
     @Transactional
     fun execute(accountId: UUID, groupId: UUID, authenticatedUserId: UUID): Any {
         val account = accountRepository.findById(accountId) ?: throw AccountNotFoundException()
-        
+
+        if (account.isJoint) {
+            if (!accountAccessService.canManage(account, authenticatedUserId)) {
+                throw AccessDeniedException("Você não tem permissão para vincular esta conta.")
+            }
+            throw IllegalArgumentException("Contas conjuntas pertencem diretamente ao grupo e não podem ser vinculadas manualmente.")
+        }
+
         if (account.ownerId != authenticatedUserId) {
             throw AccessDeniedException("Você só pode vincular suas próprias contas a um grupo.")
         }

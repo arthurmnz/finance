@@ -4,6 +4,7 @@ import com.finance.application.dto.transaction.AccountSplitRequest
 import com.finance.application.dto.transaction.CreateTransactionRequest
 import com.finance.application.dto.transaction.TransactionResponse
 import com.finance.application.mapper.TransactionDtoMapper
+import com.finance.application.service.AccountAccessService
 import com.finance.application.service.CreditCardService
 import com.finance.application.service.TransactionCategoryValidator
 import com.finance.domain.entity.AccountEntity
@@ -31,7 +32,8 @@ class CreateTransactionUseCase(
     private val creditCardService: CreditCardService,
     private val userRepository: UserRepository,
     private val groupMemberRepository: GroupMemberRepository,
-    private val categoryRepository: CategoryRepository
+    private val categoryRepository: CategoryRepository,
+    private val accountAccessService: AccountAccessService
 ) {
     @Transactional
     fun execute(userId: UUID, request: CreateTransactionRequest): List<TransactionResponse> {
@@ -91,8 +93,15 @@ class CreateTransactionUseCase(
         if (creditCard == null) {
             for (split in effectiveSplits) {
                 val acc = accountRepository.findById(split.accountId) ?: throw AccountNotFoundException("Conta não encontrada")
-                val hasAccess = acc.ownerId == userId || (acc.groupId != null && groupMemberRepository.existsByGroupIdAndUserId(acc.groupId!!, userId))
-                if (!hasAccess) throw AccessDeniedException("Você não tem permissão para registrar transações na conta informada.")
+                if (request.type == TransactionType.TRANSFER) {
+                    accountAccessService.requireTransferSourceAccess(acc, userId)
+                } else {
+                    accountAccessService.requireAccess(
+                        acc,
+                        userId,
+                        "Você não tem permissão para registrar transações na conta informada."
+                    )
+                }
                 accountsById[acc.id] = acc
             }
         }
@@ -106,26 +115,33 @@ class CreateTransactionUseCase(
             }
             val destAccount = accountRepository.findById(destId)
                 ?: throw AccountNotFoundException("Destinatario não encontrado")
-            val hasDestAccess = destAccount.ownerId == userId ||
-                (destAccount.groupId != null && groupMemberRepository.existsByGroupIdAndUserId(destAccount.groupId!!, userId))
-            if (!hasDestAccess) {
-                throw AccessDeniedException("Você não tem permissão para transferir para a conta de destino informada.")
-            }
+            accountAccessService.requireAccess(
+                destAccount,
+                userId,
+                "Você não tem permissão para transferir para a conta de destino informada."
+            )
 
             if (request.generatesDebt) {
                 val sourceAccount = accountsById[request.accountId]
                     ?: accountRepository.findById(request.accountId)
                     ?: throw AccountNotFoundException("Conta não encontrada")
-                if (sourceAccount.ownerId != userId) {
+                if (sourceAccount.isJoint || destAccount.isJoint) {
+                    throw InvalidTransactionException("Transferências envolvendo conta conjunta não podem gerar saldo devedor.")
+                }
+                val sourceOwnerId = sourceAccount.ownerId
+                    ?: throw InvalidTransactionException("Transferências envolvendo conta conjunta não podem gerar saldo devedor.")
+                val destOwnerId = destAccount.ownerId
+                    ?: throw InvalidTransactionException("Transferências envolvendo conta conjunta não podem gerar saldo devedor.")
+                if (sourceOwnerId != userId) {
                     throw AccessDeniedException("Apenas o titular da conta de origem pode registrar a transferência como dívida.")
                 }
-                if (sourceAccount.ownerId == destAccount.ownerId) {
+                if (sourceOwnerId == destOwnerId) {
                     throw InvalidTransactionException("A transferência deve ser entre pessoas distintas para gerar saldo devedor.")
                 }
                 val sharedGroupId = destAccount.groupId ?: sourceAccount.groupId
                 val bothInSharedGroup = sharedGroupId != null &&
-                    groupMemberRepository.existsByGroupIdAndUserId(sharedGroupId, sourceAccount.ownerId) &&
-                    groupMemberRepository.existsByGroupIdAndUserId(sharedGroupId, destAccount.ownerId)
+                    groupMemberRepository.existsByGroupIdAndUserId(sharedGroupId, sourceOwnerId) &&
+                    groupMemberRepository.existsByGroupIdAndUserId(sharedGroupId, destOwnerId)
                 if (!bothInSharedGroup) {
                     throw InvalidTransactionException("As contas da transferência devem estar vinculadas a um grupo em comum entre os dois usuários para gerar saldo devedor.")
                 }
@@ -179,7 +195,7 @@ class CreateTransactionUseCase(
             val baseInstallmentAmount = if (divideTotal) split.amount / installments else split.amount
             val remainder = if (divideTotal) split.amount % installments else 0
             val splitAccount = accountsById[split.accountId]
-            val itemResponsibleId = if (effectiveSplits.size > 1 && splitAccount != null) splitAccount.ownerId else userId
+            val itemResponsibleId = if (effectiveSplits.size > 1 && splitAccount != null) (splitAccount.ownerId ?: userId) else userId
 
             for (i in 0 until installments) {
                 val itemAmount = if (divideTotal && i == 0) baseInstallmentAmount + remainder else baseInstallmentAmount

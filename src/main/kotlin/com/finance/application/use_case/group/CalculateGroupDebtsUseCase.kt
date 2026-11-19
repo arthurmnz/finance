@@ -126,19 +126,22 @@ class CalculateGroupDebtsUseCase(
             ) {
                 val sourceAcc = resolveAccount(tx.accountId) ?: continue
                 val destAcc = resolveAccount(destAccId) ?: continue
-                if (sourceAcc.ownerId == destAcc.ownerId) continue
+                if (sourceAcc.isJoint || destAcc.isJoint) continue
+                val sourceOwnerId = sourceAcc.ownerId ?: continue
+                val destOwnerId = destAcc.ownerId ?: continue
+                if (sourceOwnerId == destOwnerId) continue
                 val targetGroupId = destAcc.groupId ?: sourceAcc.groupId
                 if (targetGroupId != groupId) continue
-                if (!groupMemberRepository.existsByGroupIdAndUserId(groupId, sourceAcc.ownerId) ||
-                    !groupMemberRepository.existsByGroupIdAndUserId(groupId, destAcc.ownerId)
+                if (!groupMemberRepository.existsByGroupIdAndUserId(groupId, sourceOwnerId) ||
+                    !groupMemberRepository.existsByGroupIdAndUserId(groupId, destOwnerId)
                 ) continue
 
                 val ym = YearMonth.from(tx.date)
                 allYms.add(ym)
                 purchases.add(
                     DebtItem(
-                        debtorId = destAcc.ownerId,
-                        creditorId = sourceAcc.ownerId,
+                        debtorId = destOwnerId,
+                        creditorId = sourceOwnerId,
                         ym = ym,
                         signedAmount = tx.amount,
                         tx = tx,

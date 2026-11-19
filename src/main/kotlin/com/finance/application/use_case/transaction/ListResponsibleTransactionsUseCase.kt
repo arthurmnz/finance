@@ -3,6 +3,8 @@ package com.finance.application.use_case.transaction
 import com.finance.application.dto.transaction.TransactionResponse
 import com.finance.application.mapper.CategoryBatchLoader
 import com.finance.application.mapper.TransactionDtoMapper
+import com.finance.application.service.AccountAccessService
+import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.CategoryRepository
 import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.repository.UserRepository
@@ -14,14 +16,29 @@ import java.util.UUID
 class ListResponsibleTransactionsUseCase(
     private val transactionRepository: TransactionRepository,
     private val userRepository: UserRepository,
-    private val categoryRepository: CategoryRepository
+    private val categoryRepository: CategoryRepository,
+    private val accountAccessService: AccountAccessService,
+    private val accountRepository: AccountRepository
 ) {
     @Transactional(readOnly = true)
     fun execute(userId: UUID, month: Int?, year: Int?): List<TransactionResponse> {
         val user = userRepository.findById(userId)
         val allResponsibleTxs = transactionRepository.findByResponsibleId(userId)
 
+        val accountIds = allResponsibleTxs
+            .filter { it.creditCardId == null }
+            .flatMap { listOfNotNull(it.accountId, it.destinationAccountId) }
+            .toSet()
+        val accountMap = if (accountIds.isEmpty()) emptyMap()
+        else accountRepository.findAllByIdIn(accountIds).associateBy { it.id }
+
         val filtered = allResponsibleTxs.filter { tx ->
+            if (tx.creditCardId == null) {
+                val involved = listOfNotNull(tx.accountId, tx.destinationAccountId).mapNotNull { accountMap[it] }
+                if (involved.any { it.isJoint && !accountAccessService.hasAccess(it, userId) }) {
+                    return@filter false
+                }
+            }
             val matchMonth = month == null || tx.date.monthValue == month
             val matchYear = year == null || tx.date.year == year
             matchMonth && matchYear

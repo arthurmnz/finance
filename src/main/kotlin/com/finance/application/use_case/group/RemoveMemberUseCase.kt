@@ -8,6 +8,7 @@ import com.finance.domain.exception.AccessDeniedException
 import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.GroupMemberRepository
 import com.finance.domain.repository.GroupRepository
+import com.finance.domain.repository.JointAccountMemberRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -19,6 +20,7 @@ class RemoveMemberUseCase(
     private val groupMemberRepository: GroupMemberRepository,
     private val groupRepository: GroupRepository,
     private val accountRepository: AccountRepository,
+    private val jointAccountMemberRepository: JointAccountMemberRepository,
     private val groupDtoMapper: GroupDtoMapper,
 ) {
 
@@ -42,9 +44,18 @@ class RemoveMemberUseCase(
             throw AccessDeniedException("Administradores não podem remover outros administradores.")
         }
 
-        // Desvincula todas as contas do usuário que estavam neste grupo
-        val userAccountsInGroup = accountRepository.findAllByGroupId(group.id).filter { it.ownerId == target.id }
-        userAccountsInGroup.forEach { it.unlinkFromGroup() }
+        // Desvincula todas as contas individuais do usuário que estavam neste grupo
+        val groupAccounts = accountRepository.findAllByGroupId(group.id)
+        groupAccounts.filter { !it.isJoint && it.ownerId == target.id }.forEach {
+            it.unlinkFromGroup()
+            accountRepository.save(it)
+        }
+
+        // Remove o usuário de todas as contas conjuntas deste grupo
+        val jointAccountIds = groupAccounts.filter { it.isJoint }.map { it.id }
+        if (jointAccountIds.isNotEmpty()) {
+            jointAccountMemberRepository.deleteAllByAccountIdInAndUserId(jointAccountIds, target.id)
+        }
 
         groupMemberRepository.deleteByGroupIdAndUserId(group.id, target.id)
 

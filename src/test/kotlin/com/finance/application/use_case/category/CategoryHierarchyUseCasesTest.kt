@@ -2,6 +2,7 @@ package com.finance.application.use_case.category
 
 import com.finance.application.dto.category.CreateCategoryRequest
 import com.finance.application.dto.category.UpdateCategoryRequest
+import com.finance.application.service.AccountAccessService
 import com.finance.application.service.GroupService
 import com.finance.application.use_case.group.GetGroupUsedCategoriesUseCase
 import com.finance.application.use_case.transaction.ListCategoryTransactionsUseCase
@@ -22,6 +23,7 @@ import com.finance.domain.repository.CategoryRepository
 import com.finance.domain.repository.CreditCardRepository
 import com.finance.domain.repository.GroupMemberRepository
 import com.finance.domain.repository.GroupRepository
+import com.finance.domain.repository.JointAccountMemberRepository
 import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.repository.UserRepository
 import com.finance.domain.value_object.Email
@@ -38,6 +40,7 @@ import org.mockito.Mockito.verify
 import java.time.LocalDate
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -54,10 +57,12 @@ class CategoryHierarchyUseCasesTest {
     private lateinit var transactionRepository: TransactionRepository
     private lateinit var groupRepository: GroupRepository
     private lateinit var groupMemberRepository: GroupMemberRepository
+    private lateinit var jointAccountMemberRepository: JointAccountMemberRepository
     private lateinit var accountRepository: AccountRepository
     private lateinit var creditCardRepository: CreditCardRepository
     private lateinit var userRepository: UserRepository
     private lateinit var groupService: GroupService
+    private lateinit var accountAccessService: AccountAccessService
 
     private lateinit var createCategoryUseCase: CreateCategoryUseCase
     private lateinit var updateCategoryUseCase: UpdateCategoryUseCase
@@ -72,10 +77,12 @@ class CategoryHierarchyUseCasesTest {
         transactionRepository = mock(TransactionRepository::class.java)
         groupRepository = mock(GroupRepository::class.java)
         groupMemberRepository = mock(GroupMemberRepository::class.java)
+        jointAccountMemberRepository = mock(JointAccountMemberRepository::class.java)
         accountRepository = mock(AccountRepository::class.java)
         creditCardRepository = mock(CreditCardRepository::class.java)
         userRepository = mock(UserRepository::class.java)
         groupService = GroupService(groupRepository, groupMemberRepository)
+        accountAccessService = AccountAccessService(groupMemberRepository, jointAccountMemberRepository)
 
         createCategoryUseCase = CreateCategoryUseCase(categoryRepository, groupService)
         updateCategoryUseCase = UpdateCategoryUseCase(categoryRepository, transactionRepository, groupService)
@@ -87,7 +94,8 @@ class CategoryHierarchyUseCasesTest {
             accountRepository = accountRepository,
             creditCardRepository = creditCardRepository,
             transactionRepository = transactionRepository,
-            categoryRepository = categoryRepository
+            categoryRepository = categoryRepository,
+            accountAccessService = accountAccessService
         )
         listCategoryTransactionsUseCase = ListCategoryTransactionsUseCase(
             transactionRepository = transactionRepository,
@@ -95,7 +103,8 @@ class CategoryHierarchyUseCasesTest {
             groupMemberRepository = groupMemberRepository,
             userRepository = userRepository,
             accountRepository = accountRepository,
-            creditCardRepository = creditCardRepository
+            creditCardRepository = creditCardRepository,
+            accountAccessService = accountAccessService
         )
     }
 
@@ -1081,5 +1090,84 @@ class CategoryHierarchyUseCasesTest {
         val groupResultForUserA = listCategoryTransactionsUseCase.execute(groupGeneral.id, authenticatedUserId = userA)
         assertEquals(1, groupResultForUserA.size)
         assertEquals("Enel Grupo", groupResultForUserA[0].title)
+    }
+
+    @Test
+    fun `restricted joint account transactions and personal categories should not leak to non-member of joint account`() {
+        val alice = UUID.randomUUID()
+        val carol = UUID.randomUUID()
+        val groupId = UUID.randomUUID()
+
+        val groupGeneral = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Casa",
+            description = null,
+            userId = null,
+            groupId = groupId,
+            type = CategoryType.EXPENSE,
+            color = "#7D39EB",
+            icon = "🏠",
+            level = CategoryLevel.GENERAL
+        )
+        val alicePersonalCat = CategoryEntity(
+            id = UUID.randomUUID(),
+            name = "Segredo Conjunta",
+            description = null,
+            userId = alice,
+            groupId = null,
+            type = CategoryType.EXPENSE,
+            color = "#000000",
+            icon = "🔒",
+            level = CategoryLevel.GENERAL
+        )
+        val restrictedJointAcc = com.finance.domain.entity.AccountEntity.createJoint(
+            groupId = groupId,
+            name = "Conjunta Restrita",
+            startBalance = 10000,
+            type = com.finance.domain.enum.AccountType.CHECKING
+        )
+        val txInRestrictedJoint = TransactionEntity(
+            title = "Gasto Restrito",
+            amount = 5000,
+            date = LocalDate.of(2026, 6, 2),
+            responsibleId = alice,
+            accountId = restrictedJointAcc.id,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = groupGeneral.id,
+            status = TransactionStatus.COMPLETED,
+            generalCategoryId = groupGeneral.id
+        )
+        val txPersonalCatInRestrictedJoint = TransactionEntity(
+            title = "Gasto Pessoal na Conjunta",
+            amount = 2000,
+            date = LocalDate.of(2026, 6, 3),
+            responsibleId = alice,
+            accountId = restrictedJointAcc.id,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = alicePersonalCat.id,
+            status = TransactionStatus.COMPLETED,
+            generalCategoryId = alicePersonalCat.id
+        )
+
+        `when`(groupRepository.findById(groupId)).thenReturn(GroupEntity(id = groupId, name = "Casa"))
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(groupId, carol)).thenReturn(true)
+        `when`(jointAccountMemberRepository.existsByAccountIdAndUserId(restrictedJointAcc.id, carol)).thenReturn(false)
+        `when`(accountRepository.findAllByGroupId(groupId)).thenReturn(listOf(restrictedJointAcc))
+        `when`(creditCardRepository.findAllByGroupId(groupId)).thenReturn(emptyList())
+        `when`(categoryRepository.findByGroupId(groupId)).thenReturn(listOf(groupGeneral))
+        `when`(categoryRepository.findById(groupGeneral.id)).thenReturn(groupGeneral)
+        `when`(categoryRepository.findByParentId(groupGeneral.id)).thenReturn(emptyList())
+        `when`(transactionRepository.findByCategoryIdInOrGeneralCategoryId(listOf(groupGeneral.id), groupGeneral.id))
+            .thenReturn(listOf(txInRestrictedJoint))
+        `when`(transactionRepository.findByAccountId(restrictedJointAcc.id))
+            .thenReturn(listOf(txInRestrictedJoint, txPersonalCatInRestrictedJoint))
+
+        val carolTxs = listCategoryTransactionsUseCase.execute(groupGeneral.id, authenticatedUserId = carol)
+        assertTrue(carolTxs.isEmpty())
+
+        val carolUsedCats = getGroupUsedCategoriesUseCase.execute(groupId, carol)
+        assertFalse(carolUsedCats.any { it.id == alicePersonalCat.id })
     }
 }

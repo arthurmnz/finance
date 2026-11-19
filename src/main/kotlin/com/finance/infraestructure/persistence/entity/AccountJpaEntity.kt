@@ -17,8 +17,8 @@ class AccountJpaEntity(
     @Column(name = "id", nullable = false, updatable = false)
     var id: UUID,
 
-    @Column(name = "owner_id", nullable = false, updatable = false)
-    var ownerId: UUID,
+    @Column(name = "owner_id", nullable = true, updatable = false)
+    var ownerId: UUID? = null,
 
     @Column(name = "name", nullable = false, length = 100)
     var name: String,
@@ -46,5 +46,8 @@ class AccountJpaEntity(
     var createdAt: LocalDateTime = LocalDateTime.now(),
 
     @Column(name = "updated_at", nullable = false)
-    var updatedAt: LocalDateTime = LocalDateTime.now()
+    var updatedAt: LocalDateTime = LocalDateTime.now(),
+
+    @Column(name = "is_joint", nullable = false, columnDefinition = "boolean default false")
+    var isJoint: Boolean = false
 )

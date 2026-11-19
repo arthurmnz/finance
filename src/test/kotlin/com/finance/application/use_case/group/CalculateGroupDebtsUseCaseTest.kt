@@ -542,4 +542,59 @@ class CalculateGroupDebtsUseCaseTest {
         assertEquals(6000, pairBalance.netAmount)
         assertEquals(2, pairBalance.grossDebts.size)
     }
+
+    @Test
+    fun `should ignore joint accounts without throwing NullPointerException or creating debts`() {
+        val userA = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val userB = UserEntity(Name("Maria"), Name("Silva"), Email("maria@finance.com"), PasswordHash("hash"))
+        val group = GroupEntity(id = UUID.randomUUID(), name = "Família")
+
+        `when`(groupRepository.findById(group.id)).thenReturn(group)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(group.id, userA.id)).thenReturn(true)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(group.id, userB.id)).thenReturn(true)
+        `when`(userRepository.findAll()).thenReturn(listOf(userA, userB))
+        `when`(debtSettlementRepository.findByGroupId(group.id)).thenReturn(emptyList())
+        `when`(creditCardRepository.findAllByGroupId(group.id)).thenReturn(emptyList())
+
+        val accA = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userA.id,
+            name = "Conta Arthur",
+            startBalance = 50000,
+            balance = 50000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = group.id
+        )
+        val jointAcc = AccountEntity.createJoint(
+            groupId = group.id,
+            name = "Conta Conjunta",
+            startBalance = 10000,
+            type = AccountType.CHECKING
+        )
+        `when`(accountRepository.findAllByGroupId(group.id)).thenReturn(listOf(accA, jointAcc))
+
+        val transferToJoint = TransactionEntity(
+            title = "Aporte",
+            amount = 10000,
+            date = LocalDate.of(2026, 11, 15),
+            responsibleId = userA.id,
+            accountId = accA.id,
+            type = TransactionType.TRANSFER,
+            destinationAccountId = jointAcc.id,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            generatesDebt = true
+        )
+        `when`(transactionRepository.findByAccountId(accA.id)).thenReturn(listOf(transferToJoint))
+        `when`(transactionRepository.findByDestinationAccountId(accA.id)).thenReturn(emptyList())
+        `when`(transactionRepository.findByAccountId(jointAcc.id)).thenReturn(emptyList())
+        `when`(transactionRepository.findByDestinationAccountId(jointAcc.id)).thenReturn(listOf(transferToJoint))
+
+        val response = useCase.execute(group.id, userA.id)
+
+        assertEquals(0, response.totalOwedByMe)
+        assertEquals(0, response.totalReceivableByMe)
+        assertTrue(response.monthlyBalances.all { it.userBalances.isEmpty() })
+    }
 }

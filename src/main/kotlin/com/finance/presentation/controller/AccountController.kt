@@ -10,6 +10,7 @@ import com.finance.application.use_case.account.CreateAccountUseCase
 import com.finance.application.use_case.account.DeleteAccountUseCase
 import com.finance.application.use_case.account.GetTotalBalanceUseCase
 import com.finance.application.use_case.account.LinkAccountToGroupUseCase
+import com.finance.application.use_case.account.ListAccessibleAccountsUseCase
 import com.finance.application.use_case.account.ListGroupAccountsUseCase
 import com.finance.application.use_case.account.ListMyAccountsUseCase
 import com.finance.application.use_case.account.ListPendingAccountGroupRequestsUseCase
@@ -41,6 +42,7 @@ class AccountController(
     private val createAccountUseCase: CreateAccountUseCase,
     private val updateAccountUseCase: UpdateAccountUseCase,
     private val listMyAccountsUseCase: ListMyAccountsUseCase,
+    private val listAccessibleAccountsUseCase: ListAccessibleAccountsUseCase,
     private val getTotalBalanceUseCase: GetTotalBalanceUseCase,
     private val linkAccountToGroupUseCase: LinkAccountToGroupUseCase,
     private val unlinkAccountFromGroupUseCase: UnlinkAccountFromGroupUseCase,
@@ -74,6 +76,15 @@ class AccountController(
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<List<AccountResponse>> {
         val response = listMyAccountsUseCase.execute(authenticatedUser.id)
+        return ResponseEntity.ok(response)
+    }
+
+    @GetMapping("/accessible")
+    @Operation(summary = "Listar contas acessíveis", description = "Retorna contas próprias, contas individuais vinculadas aos grupos do usuário e contas conjuntas autorizadas.")
+    fun listAccessibleAccounts(
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<List<AccountResponse>> {
+        val response = listAccessibleAccountsUseCase.execute(authenticatedUser.id)
         return ResponseEntity.ok(response)
     }
 

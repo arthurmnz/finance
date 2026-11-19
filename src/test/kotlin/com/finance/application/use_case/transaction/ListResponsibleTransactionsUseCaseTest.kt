@@ -7,6 +7,12 @@ import com.finance.domain.enum.CategoryLevel
 import com.finance.domain.enum.CategoryType
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
+import com.finance.application.service.AccountAccessService
+import com.finance.domain.entity.AccountEntity
+import com.finance.domain.enum.AccountType
+import com.finance.domain.repository.AccountRepository
+import com.finance.domain.repository.GroupMemberRepository
+import com.finance.domain.repository.JointAccountMemberRepository
 import com.finance.domain.repository.CategoryRepository
 import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.repository.UserRepository
@@ -28,6 +34,9 @@ class ListResponsibleTransactionsUseCaseTest {
     private lateinit var transactionRepository: TransactionRepository
     private lateinit var userRepository: UserRepository
     private lateinit var categoryRepository: CategoryRepository
+    private lateinit var accountRepository: AccountRepository
+    private lateinit var groupMemberRepository: GroupMemberRepository
+    private lateinit var jointAccountMemberRepository: JointAccountMemberRepository
     private lateinit var useCase: ListResponsibleTransactionsUseCase
 
     private val user = UserEntity(
@@ -43,11 +52,16 @@ class ListResponsibleTransactionsUseCaseTest {
         transactionRepository = mock(TransactionRepository::class.java)
         userRepository = mock(UserRepository::class.java)
         categoryRepository = mock(CategoryRepository::class.java)
+        accountRepository = mock(AccountRepository::class.java)
+        groupMemberRepository = mock(GroupMemberRepository::class.java)
+        jointAccountMemberRepository = mock(JointAccountMemberRepository::class.java)
 
         useCase = ListResponsibleTransactionsUseCase(
             transactionRepository = transactionRepository,
             userRepository = userRepository,
-            categoryRepository = categoryRepository
+            categoryRepository = categoryRepository,
+            accountAccessService = AccountAccessService(groupMemberRepository, jointAccountMemberRepository),
+            accountRepository = accountRepository
         )
 
         `when`(userRepository.findById(user.id)).thenReturn(user)
@@ -188,5 +202,37 @@ class ListResponsibleTransactionsUseCaseTest {
         // Sem filtros
         val all = useCase.execute(user.id, month = null, year = null)
         assertEquals(2, all.size)
+    }
+
+    @Test
+    fun `should hide transactions of joint account when access was revoked`() {
+        val groupId = UUID.randomUUID()
+        val joint = AccountEntity.createJoint(groupId, "Conjunta", 1000, AccountType.CHECKING)
+        val personal = AccountEntity(ownerId = user.id, name = "Pessoal", startBalance = 0, type = AccountType.CHECKING, tax = null)
+        fun tx(title: String, acc: UUID) = TransactionEntity(
+            title = title, amount = 100, date = LocalDate.of(2026, 1, 1), responsibleId = user.id,
+            accountId = acc, type = TransactionType.EXPENSE, destinationAccountId = null,
+            categoryId = null, status = TransactionStatus.COMPLETED
+        )
+        val txJoint = tx("Conjunta", joint.id)
+        val txPersonal = tx("Pessoal", personal.id)
+        val txTransfer = TransactionEntity(
+            title = "Transfer", amount = 100, date = LocalDate.of(2026, 1, 1), responsibleId = user.id,
+            accountId = personal.id, type = TransactionType.TRANSFER, destinationAccountId = joint.id,
+            categoryId = null, status = TransactionStatus.COMPLETED
+        )
+        `when`(transactionRepository.findByResponsibleId(user.id)).thenReturn(listOf(txJoint, txPersonal, txTransfer))
+        `when`(accountRepository.findAllByIdIn(setOf(joint.id, personal.id)))
+            .thenReturn(listOf(joint, personal))
+        `when`(accountRepository.findAllByIdIn(listOf(joint.id, personal.id))).thenReturn(listOf(joint, personal))
+
+        // access revoked: not a group member / joint member
+        val result = useCase.execute(user.id, null, null)
+        assertEquals(listOf("Pessoal"), result.map { it.title })
+
+        // access granted
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(groupId, user.id)).thenReturn(true)
+        `when`(jointAccountMemberRepository.existsByAccountIdAndUserId(joint.id, user.id)).thenReturn(true)
+        assertEquals(3, useCase.execute(user.id, null, null).size)
     }
 }

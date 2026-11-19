@@ -1,12 +1,12 @@
 package com.finance.application.use_case.transaction
 
+import com.finance.application.service.AccountAccessService
 import com.finance.domain.entity.CreditCardInvoiceEntity
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccountNotFoundException
 import com.finance.domain.exception.TransactionNotFoundException
-import com.finance.domain.exception.UnauthorizedException
 import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.CreditCardInvoiceRepository
 import com.finance.domain.repository.CreditCardRepository
@@ -20,16 +20,20 @@ class DeleteTransactionUseCase(
     private val transactionRepository: TransactionRepository,
     private val accountRepository: AccountRepository,
     private val creditCardInvoiceRepository: CreditCardInvoiceRepository,
-    private val creditCardRepository: CreditCardRepository
+    private val creditCardRepository: CreditCardRepository,
+    private val accountAccessService: AccountAccessService
 ) {
     @Transactional
     fun execute(userId: UUID, transactionId: UUID, deleteAllFuture: Boolean = false) {
         val transaction = transactionRepository.findById(transactionId)
             ?: throw TransactionNotFoundException()
 
-        if (transaction.responsibleId != userId) {
-            throw UnauthorizedException("You can only delete transactions you created")
-        }
+        accountAccessService.requireTransactionMutationAccess(
+            transaction = transaction,
+            userId = userId,
+            accountRepository = accountRepository,
+            unauthorizedMessage = "You can only delete transactions you created"
+        )
 
         val transactionsToDelete = mutableListOf(transaction)
 

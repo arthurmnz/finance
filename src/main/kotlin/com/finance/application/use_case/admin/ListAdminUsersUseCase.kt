@@ -23,7 +23,7 @@ class ListAdminUsersUseCase(
         }
 
         val accountsCountMap = entityManager.createQuery(
-            "SELECT a.ownerId, COUNT(a) FROM AccountJpaEntity a GROUP BY a.ownerId",
+            "SELECT a.ownerId, COUNT(a) FROM AccountJpaEntity a WHERE a.ownerId IS NOT NULL GROUP BY a.ownerId",
             Array<Any>::class.java
         ).resultList.associate { (it[0] as UUID) to (it[1] as Long) }
 

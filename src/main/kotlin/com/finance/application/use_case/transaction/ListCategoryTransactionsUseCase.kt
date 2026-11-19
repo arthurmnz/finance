@@ -2,6 +2,7 @@ package com.finance.application.use_case.transaction
 
 import com.finance.application.dto.transaction.TransactionResponse
 import com.finance.application.mapper.TransactionDtoMapper
+import com.finance.application.service.AccountAccessService
 import com.finance.domain.entity.CategoryEntity
 import com.finance.domain.enum.CategoryLevel
 import com.finance.domain.exception.AccessDeniedException
@@ -23,7 +24,8 @@ class ListCategoryTransactionsUseCase(
     private val groupMemberRepository: GroupMemberRepository,
     private val userRepository: UserRepository,
     private val accountRepository: AccountRepository,
-    private val creditCardRepository: CreditCardRepository
+    private val creditCardRepository: CreditCardRepository,
+    private val accountAccessService: AccountAccessService
 ) {
     @Transactional(readOnly = true)
     fun execute(
@@ -60,15 +62,39 @@ class ListCategoryTransactionsUseCase(
 
         val groupId = category.groupId
         val scopedTransactions = if (groupId != null) {
-            val groupAccountIds = accountRepository.findAllByGroupId(groupId).map { it.id }.toSet()
+            val groupAccounts = accountRepository.findAllByGroupId(groupId)
+            val accessibleGroupAccountIds = groupAccounts
+                .filter { accountAccessService.hasAccess(it, authenticatedUserId) }
+                .map { it.id }
+                .toSet()
+            val restrictedJointAccountIds = groupAccounts
+                .filter { it.isJoint && !accountAccessService.hasAccess(it, authenticatedUserId) }
+                .map { it.id }
+                .toSet()
             val groupCardIds = creditCardRepository.findAllByGroupId(groupId).map { it.id }.toSet()
             rawTransactions.filter { tx ->
-                (tx.creditCardId == null && (tx.accountId in groupAccountIds || (tx.destinationAccountId != null && tx.destinationAccountId in groupAccountIds))) ||
-                    (tx.creditCardId != null && tx.creditCardId in groupCardIds) ||
-                    tx.responsibleId == authenticatedUserId
+                if (tx.creditCardId == null && tx.accountId in restrictedJointAccountIds && tx.destinationAccountId !in accessibleGroupAccountIds) {
+                    false
+                } else {
+                    (tx.creditCardId == null && (tx.accountId in accessibleGroupAccountIds || (tx.destinationAccountId != null && tx.destinationAccountId in accessibleGroupAccountIds))) ||
+                        (tx.creditCardId != null && tx.creditCardId in groupCardIds) ||
+                        (tx.responsibleId == authenticatedUserId && tx.accountId !in restrictedJointAccountIds)
+                }
             }
         } else {
-            rawTransactions.filter { tx -> tx.responsibleId == authenticatedUserId }
+            val own = rawTransactions.filter { tx -> tx.responsibleId == authenticatedUserId }
+            val accountIds = own
+                .filter { it.creditCardId == null }
+                .flatMap { listOfNotNull(it.accountId, it.destinationAccountId) }
+                .toSet()
+            val accountMap = if (accountIds.isEmpty()) emptyMap()
+            else accountRepository.findAllByIdIn(accountIds).associateBy { it.id }
+            own.filter { tx ->
+                tx.creditCardId != null ||
+                    listOfNotNull(tx.accountId, tx.destinationAccountId)
+                        .mapNotNull { accountMap[it] }
+                        .all { accountAccessService.hasAccess(it, authenticatedUserId) }
+            }
         }
 
         val filteredTransactions = scopedTransactions

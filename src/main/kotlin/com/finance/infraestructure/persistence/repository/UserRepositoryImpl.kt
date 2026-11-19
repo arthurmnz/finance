@@ -29,6 +29,12 @@ class UserRepositoryImpl(
     }
 
     @Transactional(readOnly = true)
+    override fun findAllByIdIn(ids: Collection<UUID>): List<UserEntity> {
+        if (ids.isEmpty()) return emptyList()
+        return springDataUserRepository.findAllById(ids).map { userMapper.toDomain(it) }
+    }
+
+    @Transactional(readOnly = true)
     override fun findByEmail(email: Email): UserEntity? {
         val jpaEntity = springDataUserRepository.findByEmail(email.normalized)
         return jpaEntity?.let { userMapper.toDomain(it) }

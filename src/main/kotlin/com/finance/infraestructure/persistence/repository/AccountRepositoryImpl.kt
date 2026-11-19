@@ -25,6 +25,12 @@ class AccountRepositoryImpl(
     }
 
     @Transactional(readOnly = true)
+    override fun findAllByIdIn(ids: Collection<UUID>): List<AccountEntity> {
+        if (ids.isEmpty()) return emptyList()
+        return springDataAccountRepository.findAllByIdIn(ids).map { accountMapper.toDomain(it) }
+    }
+
+    @Transactional(readOnly = true)
     override fun findAllByOwnerId(ownerId: UUID): List<AccountEntity> {
         return springDataAccountRepository.findAllByOwnerId(ownerId).map { accountMapper.toDomain(it) }
     }
@@ -32,6 +38,17 @@ class AccountRepositoryImpl(
     @Transactional(readOnly = true)
     override fun findAllByGroupId(groupId: UUID): List<AccountEntity> {
         return springDataAccountRepository.findAllByGroupId(groupId).map { accountMapper.toDomain(it) }
+    }
+
+    @Transactional(readOnly = true)
+    override fun findAllByGroupIdIn(groupIds: Collection<UUID>): List<AccountEntity> {
+        if (groupIds.isEmpty()) return emptyList()
+        return springDataAccountRepository.findAllByGroupIdIn(groupIds).map { accountMapper.toDomain(it) }
+    }
+
+    @Transactional(readOnly = true)
+    override fun findAllByGroupIdAndIsJointTrue(groupId: UUID): List<AccountEntity> {
+        return springDataAccountRepository.findAllByGroupIdAndIsJointTrue(groupId).map { accountMapper.toDomain(it) }
     }
 
     @Transactional(readOnly = true)
@@ -47,6 +64,11 @@ class AccountRepositoryImpl(
     @Transactional
     override fun deleteAllByOwnerId(ownerId: UUID) {
         springDataAccountRepository.deleteAllByOwnerId(ownerId)
+    }
+
+    @Transactional
+    override fun deleteAllByGroupIdAndIsJointTrue(groupId: UUID) {
+        springDataAccountRepository.deleteAllByGroupIdAndIsJointTrue(groupId)
     }
 
     @Transactional

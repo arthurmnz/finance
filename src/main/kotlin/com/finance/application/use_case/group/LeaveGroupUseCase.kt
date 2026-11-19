@@ -5,6 +5,7 @@ import com.finance.domain.exception.AccessDeniedException
 import com.finance.domain.exception.AccountHasLinkedGroupException
 import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.GroupMemberRepository
+import com.finance.domain.repository.JointAccountMemberRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -13,7 +14,8 @@ import java.util.UUID
 class LeaveGroupUseCase(
     private val groupService: GroupService,
     private val groupMemberRepository: GroupMemberRepository,
-    private val accountRepository: AccountRepository
+    private val accountRepository: AccountRepository,
+    private val jointAccountMemberRepository: JointAccountMemberRepository
 ) {
 
     @Transactional
@@ -27,9 +29,14 @@ class LeaveGroupUseCase(
             )
         }
 
-        // Valida que o usuário não tem contas vinculadas a este grupo antes de permitir a saída.
+        // Valida que o usuário não tem contas individuais vinculadas a este grupo antes de permitir a saída.
         if (accountRepository.existsByOwnerIdAndGroupId(authenticatedUserId, groupId)) {
             throw AccountHasLinkedGroupException("Você possui contas vinculadas a este grupo. Desvincule-as antes de sair.")
+        }
+
+        val jointAccountIds = accountRepository.findAllByGroupIdAndIsJointTrue(groupId).map { it.id }
+        if (jointAccountIds.isNotEmpty()) {
+            jointAccountMemberRepository.deleteAllByAccountIdInAndUserId(jointAccountIds, authenticatedUserId)
         }
 
         groupMemberRepository.deleteByGroupIdAndUserId(group.id, authenticatedUserId)

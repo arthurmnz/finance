@@ -1,12 +1,14 @@
 package com.finance.application.use_case.user
 
 import com.finance.application.service.UserService
-import com.finance.domain.enum.GroupRole
+import com.finance.application.use_case.account.AccountDeletionHelper
+import com.finance.domain.repository.AccountGroupRequestRepository
+import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.GroupInvitationRepository
 import com.finance.domain.repository.GroupMemberRepository
 import com.finance.domain.repository.GroupRepository
-import com.finance.domain.repository.AccountRepository
-import com.finance.domain.repository.AccountGroupRequestRepository
+import com.finance.domain.repository.JointAccountMemberRepository
+import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.repository.UserRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -21,6 +23,8 @@ class DeleteUserUseCase(
     private val groupInvitationRepository: GroupInvitationRepository,
     private val accountRepository: AccountRepository,
     private val accountGroupRequestRepository: AccountGroupRequestRepository,
+    private val jointAccountMemberRepository: JointAccountMemberRepository,
+    private val transactionRepository: TransactionRepository,
 ) {
 
     @Transactional
@@ -31,6 +35,8 @@ class DeleteUserUseCase(
 
         // Ensures user exists before deletion or throws UserNotFoundException
         userService.findById(userId)
+
+        jointAccountMemberRepository.deleteAllByUserId(userId)
 
         // Trata os grupos onde o usuário é OWNER antes de deletar
         handleGroupOwnership(userId)
@@ -66,7 +72,17 @@ class DeleteUserUseCase(
                 nextOwner.promoteToOwner()
                 groupMemberRepository.save(nextOwner)
             } else {
-                // Nenhum outro membro: exclui o grupo junto com convites pendentes
+                // Nenhum outro membro: exclui contas conjuntas e o grupo junto com convites pendentes
+                val jointAccounts = accountRepository.findAllByGroupIdAndIsJointTrue(groupId)
+                jointAccounts.forEach { jointAccount ->
+                    AccountDeletionHelper.deleteAccountWithCascade(
+                        accountId = jointAccount.id,
+                        accountRepository = accountRepository,
+                        transactionRepository = transactionRepository,
+                        accountGroupRequestRepository = accountGroupRequestRepository,
+                        jointAccountMemberRepository = jointAccountMemberRepository
+                    )
+                }
                 groupInvitationRepository.deleteAllByGroupId(groupId)
                 groupMemberRepository.deleteAllByGroupId(groupId)
                 groupRepository.deleteById(groupId)

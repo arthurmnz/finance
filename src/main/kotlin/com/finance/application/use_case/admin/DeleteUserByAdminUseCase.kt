@@ -22,6 +22,8 @@ class DeleteUserByAdminUseCase(
         userRepository.findById(targetUserId)
             ?: throw UserNotFoundException()
 
+        entityManager.flush()
+
         // 1. Identificar entidades diretamente pertencentes ao usuário ou grupos de que é dono
         val userAccountIds = entityManager.createQuery(
             "SELECT a.id FROM AccountJpaEntity a WHERE a.ownerId = :userId",
@@ -42,6 +44,15 @@ class DeleteUserByAdminUseCase(
             "SELECT gm.groupId FROM GroupMemberJpaEntity gm WHERE gm.userId = :userId AND gm.role = :role",
             UUID::class.java
         ).setParameter("userId", targetUserId).setParameter("role", GroupRole.OWNER).resultList
+
+        val ownedGroupJointAccountIds = if (ownedGroupIds.isNotEmpty()) {
+            entityManager.createQuery(
+                "SELECT a.id FROM AccountJpaEntity a WHERE a.groupId IN :groupIds AND a.isJoint = true",
+                UUID::class.java
+            ).setParameter("groupIds", ownedGroupIds).resultList
+        } else {
+            emptyList()
+        }
 
         val ownedGroupCategoryIds = if (ownedGroupIds.isNotEmpty()) {
             entityManager.createQuery(
@@ -68,10 +79,11 @@ class DeleteUserByAdminUseCase(
             "DELETE FROM TransactionJpaEntity t WHERE t.responsibleId = :userId"
         ).setParameter("userId", targetUserId).executeUpdate()
 
-        if (userAccountIds.isNotEmpty()) {
+        val allAccountIds = (userAccountIds + ownedGroupJointAccountIds).distinct()
+        if (allAccountIds.isNotEmpty()) {
             entityManager.createQuery(
                 "DELETE FROM TransactionJpaEntity t WHERE t.accountId IN :accIds OR t.destinationAccountId IN :accIds"
-            ).setParameter("accIds", userAccountIds).executeUpdate()
+            ).setParameter("accIds", allAccountIds).executeUpdate()
         }
 
         if (userCardIds.isNotEmpty()) {
@@ -121,10 +133,10 @@ class DeleteUserByAdminUseCase(
             "DELETE FROM AccountGroupRequestJpaEntity r WHERE r.requesterId = :userId"
         ).setParameter("userId", targetUserId).executeUpdate()
 
-        if (userAccountIds.isNotEmpty()) {
+        if (allAccountIds.isNotEmpty()) {
             entityManager.createQuery(
                 "DELETE FROM AccountGroupRequestJpaEntity r WHERE r.accountId IN :accIds"
-            ).setParameter("accIds", userAccountIds).executeUpdate()
+            ).setParameter("accIds", allAccountIds).executeUpdate()
         }
 
         if (ownedGroupIds.isNotEmpty()) {
@@ -133,10 +145,27 @@ class DeleteUserByAdminUseCase(
             ).setParameter("groupIds", ownedGroupIds).executeUpdate()
         }
 
+        // 8b. Apagar joint_account_members
+        entityManager.createQuery(
+            "DELETE FROM JointAccountMemberJpaEntity jam WHERE jam.userId = :userId"
+        ).setParameter("userId", targetUserId).executeUpdate()
+
+        if (ownedGroupJointAccountIds.isNotEmpty()) {
+            entityManager.createQuery(
+                "DELETE FROM JointAccountMemberJpaEntity jam WHERE jam.accountId IN :accIds"
+            ).setParameter("accIds", ownedGroupJointAccountIds).executeUpdate()
+        }
+
         // 9. Apagar accounts
         entityManager.createQuery(
             "DELETE FROM AccountJpaEntity a WHERE a.ownerId = :userId"
         ).setParameter("userId", targetUserId).executeUpdate()
+
+        if (ownedGroupIds.isNotEmpty()) {
+            entityManager.createQuery(
+                "DELETE FROM AccountJpaEntity a WHERE a.groupId IN :groupIds AND a.isJoint = true"
+            ).setParameter("groupIds", ownedGroupIds).executeUpdate()
+        }
 
         // 10. Apagar group_invitations
         entityManager.createQuery(
@@ -193,7 +222,8 @@ class DeleteUserByAdminUseCase(
             "DELETE FROM RefreshTokenJpaEntity r WHERE r.userId = :userId"
         ).setParameter("userId", targetUserId).executeUpdate()
 
-        // 17. Por fim, apagar o usuário
+        // 17. Limpa o cache de 1º nível após os deletes em lote e apaga o usuário
+        entityManager.clear()
         userRepository.deleteById(targetUserId)
     }
 }

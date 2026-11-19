@@ -19,7 +19,8 @@ class AccountMapper {
             groupId = jpaEntity.groupId,
             includeInTotal = jpaEntity.includeInTotal,
             createdAt = jpaEntity.createdAt,
-            updatedAt = jpaEntity.updatedAt
+            updatedAt = jpaEntity.updatedAt,
+            isJoint = jpaEntity.isJoint
         )
     }
 
@@ -35,7 +36,8 @@ class AccountMapper {
             groupId = domainEntity.groupId,
             includeInTotal = domainEntity.includeInTotal,
             createdAt = domainEntity.createdAt,
-            updatedAt = domainEntity.updatedAt
+            updatedAt = domainEntity.updatedAt,
+            isJoint = domainEntity.isJoint
         )
     }
 }

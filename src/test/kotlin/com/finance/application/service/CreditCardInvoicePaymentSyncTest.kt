@@ -1,7 +1,11 @@
 package com.finance.application.service
 
+import com.finance.application.dto.credit_card.CreateCreditCardRequest
 import com.finance.application.dto.credit_card.PayInvoiceRequest
+import com.finance.application.dto.credit_card.UpdateCreditCardRequest
 import com.finance.application.dto.transaction.UpdateTransactionRequest
+import com.finance.domain.exception.AccessDeniedException
+import org.junit.jupiter.api.assertThrows
 import com.finance.application.use_case.transaction.DeleteTransactionUseCase
 import com.finance.application.use_case.transaction.ToggleTransactionStatusUseCase
 import com.finance.application.use_case.transaction.UpdateTransactionUseCase
@@ -22,6 +26,7 @@ import com.finance.domain.repository.CreditCardGroupRequestRepository
 import com.finance.domain.repository.CreditCardInvoiceRepository
 import com.finance.domain.repository.CreditCardRepository
 import com.finance.domain.repository.GroupMemberRepository
+import com.finance.domain.repository.JointAccountMemberRepository
 import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.repository.UserRepository
 import org.junit.jupiter.api.BeforeEach
@@ -51,8 +56,10 @@ class CreditCardInvoicePaymentSyncTest {
     private lateinit var userRepository: UserRepository
     private lateinit var categoryRepository: CategoryRepository
     private lateinit var groupMemberRepository: GroupMemberRepository
+    private lateinit var jointAccountMemberRepository: JointAccountMemberRepository
     private lateinit var groupService: GroupService
     private lateinit var groupRequestRepository: CreditCardGroupRequestRepository
+    private lateinit var accountAccessService: AccountAccessService
 
     private lateinit var deleteTransactionUseCase: DeleteTransactionUseCase
     private lateinit var updateTransactionUseCase: UpdateTransactionUseCase
@@ -73,14 +80,17 @@ class CreditCardInvoicePaymentSyncTest {
         userRepository = mock(UserRepository::class.java)
         categoryRepository = mock(CategoryRepository::class.java)
         groupMemberRepository = mock(GroupMemberRepository::class.java)
+        jointAccountMemberRepository = mock(JointAccountMemberRepository::class.java)
         groupService = mock(GroupService::class.java)
         groupRequestRepository = mock(CreditCardGroupRequestRepository::class.java)
+        accountAccessService = AccountAccessService(groupMemberRepository, jointAccountMemberRepository)
 
         deleteTransactionUseCase = DeleteTransactionUseCase(
             transactionRepository,
             accountRepository,
             invoiceRepository,
-            creditCardRepository
+            creditCardRepository,
+            accountAccessService
         )
 
         updateTransactionUseCase = UpdateTransactionUseCase(
@@ -90,7 +100,8 @@ class CreditCardInvoicePaymentSyncTest {
             categoryRepository,
             groupMemberRepository,
             invoiceRepository,
-            creditCardRepository
+            creditCardRepository,
+            accountAccessService
         )
 
         toggleTransactionStatusUseCase = ToggleTransactionStatusUseCase(
@@ -99,7 +110,8 @@ class CreditCardInvoicePaymentSyncTest {
             userRepository,
             categoryRepository,
             invoiceRepository,
-            creditCardRepository
+            creditCardRepository,
+            accountAccessService
         )
 
         creditCardService = CreditCardService(
@@ -111,7 +123,8 @@ class CreditCardInvoicePaymentSyncTest {
             groupMemberRepository,
             groupService,
             userRepository,
-            categoryRepository
+            categoryRepository,
+            accountAccessService
         )
     }
 
@@ -398,5 +411,61 @@ class CreditCardInvoicePaymentSyncTest {
         assertEquals(40000, response.payments[0].amount)
         assertEquals(invoiceId, response.payments[0].creditCardInvoiceId)
         verify(accountRepository).save(account)
+    }
+
+    @Test
+    fun `should reject linking credit card to joint account and validate account access on payInvoice`() {
+        val groupId = UUID.randomUUID()
+        val jointAcc = AccountEntity.createJoint(groupId, "Conjunta", 50000, AccountType.CHECKING)
+        val personalAcc = AccountEntity(
+            id = accountId,
+            ownerId = userId,
+            name = "Pessoal",
+            startBalance = 50000,
+            balance = 50000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = groupId
+        )
+        val card = CreditCardEntity(
+            id = cardId,
+            ownerId = userId,
+            accountId = accountId,
+            name = "Roxinho",
+            limitAmount = 500000,
+            closingDay = 10,
+            dueDay = 17
+        )
+
+        `when`(accountRepository.findById(jointAcc.id)).thenReturn(jointAcc)
+        `when`(accountRepository.findById(personalAcc.id)).thenReturn(personalAcc)
+        `when`(creditCardRepository.findById(cardId)).thenReturn(card)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(groupId, userId)).thenReturn(true)
+        `when`(jointAccountMemberRepository.existsByAccountIdAndUserId(jointAcc.id, userId)).thenReturn(false)
+
+        assertThrows<AccessDeniedException> {
+            creditCardService.create(
+                CreateCreditCardRequest("Card Conjunta", jointAcc.id, 100000, 10, 17),
+                userId
+            )
+        }
+
+        assertThrows<AccessDeniedException> {
+            creditCardService.update(
+                cardId,
+                UpdateCreditCardRequest("Card Conjunta", jointAcc.id, 100000, 10, 17),
+                userId
+            )
+        }
+
+        assertThrows<AccessDeniedException> {
+            creditCardService.payInvoice(
+                cardId,
+                10,
+                2026,
+                PayInvoiceRequest(amount = 1000, accountId = jointAcc.id),
+                userId
+            )
+        }
     }
 }

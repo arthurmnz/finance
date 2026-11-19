@@ -29,6 +29,9 @@ class AcceptAccountGroupRequestUseCase(
         accountGroupRequestRepository.save(request)
 
         val account = accountRepository.findById(request.accountId) ?: throw AccountNotFoundException()
+        if (account.isJoint) {
+            throw IllegalArgumentException("Contas conjuntas não podem ser vinculadas via solicitação.")
+        }
         if (account.groupId != null) {
             throw AccountAlreadyLinkedException() // Caso a conta tenha sido vinculada por outro meio
         }

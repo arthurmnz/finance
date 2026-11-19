@@ -7,6 +7,7 @@ import java.util.UUID
 interface UserRepository {
     fun save(user: UserEntity): UserEntity
     fun findById(id: UUID): UserEntity?
+    fun findAllByIdIn(ids: Collection<UUID>): List<UserEntity>
     fun findByEmail(email: Email): UserEntity?
     fun existsByEmail(email: Email): Boolean
     fun findAll(): List<UserEntity>

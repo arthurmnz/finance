@@ -145,6 +145,61 @@ class AdminUseCasesTest {
         assertNull(userRepository.findById(targetUser.id))
     }
 
+    @Suppress("UNCHECKED_CAST")
+    @Test
+    fun `deleteUser should also cascade delete joint accounts and joint members for owned groups`() {
+        val adminId = UUID.randomUUID()
+        val targetUser = UserEntity(
+            firstName = Name("Group"),
+            lastName = Name("Owner"),
+            email = Email("group.owner@finance.com"),
+            passwordHash = PasswordHash("hash"),
+            role = UserRole.USER,
+            isActive = true
+        )
+        userRepository.save(targetUser)
+
+        val ownedGroupId = UUID.randomUUID()
+        val jointAccId = UUID.randomUUID()
+
+        val emptyTypedQuery = mock(TypedQuery::class.java) as TypedQuery<UUID>
+        `when`(emptyTypedQuery.setParameter(anyString(), any())).thenReturn(emptyTypedQuery)
+        `when`(emptyTypedQuery.resultList).thenReturn(emptyList())
+
+        val groupTypedQuery = mock(TypedQuery::class.java) as TypedQuery<UUID>
+        `when`(groupTypedQuery.setParameter(anyString(), any())).thenReturn(groupTypedQuery)
+        `when`(groupTypedQuery.resultList).thenReturn(listOf(ownedGroupId))
+
+        val jointAccTypedQuery = mock(TypedQuery::class.java) as TypedQuery<UUID>
+        `when`(jointAccTypedQuery.setParameter(anyString(), any())).thenReturn(jointAccTypedQuery)
+        `when`(jointAccTypedQuery.resultList).thenReturn(listOf(jointAccId))
+
+        `when`(entityManager.createQuery(anyString(), eq(UUID::class.java))).thenAnswer { invocation ->
+            val jpql = invocation.getArgument<String>(0)
+            when {
+                jpql.contains("GroupMemberJpaEntity") -> groupTypedQuery
+                jpql.contains("a.isJoint = true") -> jointAccTypedQuery
+                else -> emptyTypedQuery
+            }
+        }
+
+        val executedQueries = mutableListOf<String>()
+        val query = mock(Query::class.java)
+        `when`(query.setParameter(anyString(), any())).thenReturn(query)
+        `when`(query.executeUpdate()).thenReturn(1)
+        `when`(entityManager.createQuery(anyString())).thenAnswer { invocation ->
+            executedQueries.add(invocation.getArgument(0))
+            query
+        }
+
+        deleteUserByAdminUseCase.execute(adminId, targetUser.id)
+
+        assertNull(userRepository.findById(targetUser.id))
+        assertTrue(executedQueries.any { it.contains("DELETE FROM JointAccountMemberJpaEntity jam WHERE jam.userId = :userId") })
+        assertTrue(executedQueries.any { it.contains("DELETE FROM JointAccountMemberJpaEntity jam WHERE jam.accountId IN :accIds") })
+        assertTrue(executedQueries.any { it.contains("DELETE FROM AccountJpaEntity a WHERE a.groupId IN :groupIds AND a.isJoint = true") })
+    }
+
     @Test
     fun `adminSeeder should skip when admin user already exists`() {
         val email = "admin@finance.com"

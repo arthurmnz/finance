@@ -3,6 +3,7 @@ package com.finance.application.use_case.group
 import com.finance.application.dto.group.DebtSettlementResponse
 import com.finance.application.dto.group.GroupUserSummary
 import com.finance.application.dto.group.SettleDebtRequest
+import com.finance.application.service.AccountAccessService
 import com.finance.domain.entity.DebtSettlementEntity
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.enum.TransactionStatus
@@ -29,7 +30,8 @@ class SettleGroupDebtUseCase(
     private val accountRepository: AccountRepository,
     private val transactionRepository: TransactionRepository,
     private val debtSettlementRepository: DebtSettlementRepository,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val accountAccessService: AccountAccessService
 ) {
     @Transactional
     fun execute(groupId: UUID, userId: UUID, request: SettleDebtRequest): DebtSettlementResponse {
@@ -65,9 +67,23 @@ class SettleGroupDebtUseCase(
         val destAccount = accountRepository.findById(request.destinationAccountId)
             ?: throw AccountNotFoundException("Conta de destino não encontrada.")
 
-        if (sourceAccount.ownerId != userId) {
-            throw AccessDeniedException("A conta de origem deve pertencer a você.")
+        if (sourceAccount.isJoint) {
+            if (sourceAccount.groupId != groupId) {
+                throw AccessDeniedException("A conta de origem deve pertencer a você.")
+            }
+            throw InvalidTransactionException("Acerto de dívida entre membros deve ser feito apenas com contas individuais.")
         }
+        if (destAccount.isJoint) {
+            if (destAccount.groupId != groupId) {
+                throw AccessDeniedException("A conta de destino deve pertencer ao credor.")
+            }
+            throw InvalidTransactionException("Acerto de dívida entre membros deve ser feito apenas com contas individuais.")
+        }
+        accountAccessService.requireTransferSourceAccess(
+            sourceAccount,
+            userId,
+            "A conta de origem deve pertencer a você."
+        )
         if (destAccount.ownerId != request.creditorId) {
             throw AccessDeniedException("A conta de destino deve pertencer ao credor.")
         }

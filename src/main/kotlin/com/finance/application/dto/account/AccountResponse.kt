@@ -1,13 +1,13 @@
 package com.finance.application.dto.account
 
+import com.finance.application.dto.group.GroupUserSummary
 import com.finance.domain.enum.AccountType
-import java.math.BigDecimal
 import java.time.LocalDateTime
 import java.util.UUID
 
 data class AccountResponse(
     val id: UUID,
-    val ownerId: UUID,
+    val ownerId: UUID?,
     val name: String,
     val startBalance: Int,
     val balance: Int,
@@ -16,5 +16,7 @@ data class AccountResponse(
     val groupId: UUID?,
     val includeInTotal: Boolean,
     val createdAt: LocalDateTime,
-    val updatedAt: LocalDateTime
+    val updatedAt: LocalDateTime,
+    val isJoint: Boolean = false,
+    val allowedMembers: List<GroupUserSummary> = emptyList()
 )

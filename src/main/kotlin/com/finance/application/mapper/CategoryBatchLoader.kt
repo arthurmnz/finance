@@ -1,5 +1,6 @@
 package com.finance.application.mapper
 
+import com.finance.application.service.AccountAccessService
 import com.finance.domain.entity.CategoryEntity
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.repository.AccountRepository
@@ -80,13 +81,16 @@ object CategoryBatchLoader {
 
     fun collectGroupCategoriesWithParents(
         groupId: UUID,
+        userId: UUID,
         categoryRepository: CategoryRepository,
         accountRepository: AccountRepository,
         creditCardRepository: CreditCardRepository,
-        transactionRepository: TransactionRepository
+        transactionRepository: TransactionRepository,
+        accountAccessService: AccountAccessService
     ): Map<UUID, CategoryEntity> {
         val groupCategories = categoryRepository.findByGroupId(groupId)
         val accounts = accountRepository.findAllByGroupId(groupId)
+            .filter { accountAccessService.hasAccess(it, userId) }
         val cards = creditCardRepository.findAllByGroupId(groupId)
 
         val usedCategoryIds = mutableSetOf<UUID>()

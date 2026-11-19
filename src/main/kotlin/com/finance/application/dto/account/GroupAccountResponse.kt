@@ -16,5 +16,7 @@ data class GroupAccountResponse(
     val includeInTotal: Boolean,
     val createdAt: LocalDateTime,
     val updatedAt: LocalDateTime,
-    val owner: GroupUserSummary
+    val owner: GroupUserSummary?,
+    val isJoint: Boolean = false,
+    val allowedMembers: List<GroupUserSummary> = emptyList()
 )

@@ -1,5 +1,6 @@
 package com.finance.application.use_case.category
 
+import com.finance.application.service.AccountAccessService
 import com.finance.domain.entity.AccountEntity
 import com.finance.domain.entity.CategoryEntity
 import com.finance.domain.entity.CreditCardEntity
@@ -17,6 +18,7 @@ import com.finance.domain.repository.CategoryRepository
 import com.finance.domain.repository.CreditCardRepository
 import com.finance.domain.repository.GroupMemberRepository
 import com.finance.domain.repository.GroupRepository
+import com.finance.domain.repository.JointAccountMemberRepository
 import com.finance.domain.repository.TransactionRepository
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -37,6 +39,8 @@ class ListGroupCategoriesUseCaseTest {
     private lateinit var transactionRepository: TransactionRepository
     private lateinit var groupRepository: GroupRepository
     private lateinit var groupMemberRepository: GroupMemberRepository
+    private lateinit var jointAccountMemberRepository: JointAccountMemberRepository
+    private lateinit var accountAccessService: AccountAccessService
     private lateinit var useCase: ListGroupCategoriesUseCase
 
     @BeforeEach
@@ -47,6 +51,8 @@ class ListGroupCategoriesUseCaseTest {
         transactionRepository = mock(TransactionRepository::class.java)
         groupRepository = mock(GroupRepository::class.java)
         groupMemberRepository = mock(GroupMemberRepository::class.java)
+        jointAccountMemberRepository = mock(JointAccountMemberRepository::class.java)
+        accountAccessService = AccountAccessService(groupMemberRepository, jointAccountMemberRepository)
 
         useCase = ListGroupCategoriesUseCase(
             categoryRepository = categoryRepository,
@@ -54,7 +60,8 @@ class ListGroupCategoriesUseCaseTest {
             creditCardRepository = creditCardRepository,
             transactionRepository = transactionRepository,
             groupRepository = groupRepository,
-            groupMemberRepository = groupMemberRepository
+            groupMemberRepository = groupMemberRepository,
+            accountAccessService = accountAccessService
         )
     }
 

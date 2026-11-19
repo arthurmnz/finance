@@ -3,6 +3,7 @@ package com.finance.application.use_case.category
 import com.finance.application.dto.category.CategoryResponse
 import com.finance.application.mapper.CategoryBatchLoader
 import com.finance.application.mapper.CategoryDtoMapper
+import com.finance.application.service.AccountAccessService
 import com.finance.domain.enum.CategoryLevel
 import com.finance.domain.exception.AccessDeniedException
 import com.finance.domain.exception.GroupNotFoundException
@@ -23,7 +24,8 @@ class ListGroupCategoriesUseCase(
     private val creditCardRepository: CreditCardRepository,
     private val transactionRepository: TransactionRepository,
     private val groupRepository: GroupRepository,
-    private val groupMemberRepository: GroupMemberRepository
+    private val groupMemberRepository: GroupMemberRepository,
+    private val accountAccessService: AccountAccessService
 ) {
     @Transactional(readOnly = true)
     fun execute(
@@ -39,10 +41,12 @@ class ListGroupCategoriesUseCase(
 
         val allCategories = CategoryBatchLoader.collectGroupCategoriesWithParents(
             groupId = groupId,
+            userId = userId,
             categoryRepository = categoryRepository,
             accountRepository = accountRepository,
             creditCardRepository = creditCardRepository,
-            transactionRepository = transactionRepository
+            transactionRepository = transactionRepository,
+            accountAccessService = accountAccessService
         )
 
         return allCategories.values

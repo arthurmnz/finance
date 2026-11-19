@@ -1,6 +1,7 @@
 package com.finance.application.use_case.group
 
 import com.finance.application.dto.group.SettleDebtRequest
+import com.finance.application.service.AccountAccessService
 import com.finance.domain.entity.AccountEntity
 import com.finance.domain.entity.DebtSettlementEntity
 import com.finance.domain.entity.GroupEntity
@@ -13,6 +14,7 @@ import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.DebtSettlementRepository
 import com.finance.domain.repository.GroupMemberRepository
 import com.finance.domain.repository.GroupRepository
+import com.finance.domain.repository.JointAccountMemberRepository
 import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.repository.UserRepository
 import com.finance.domain.value_object.Email
@@ -40,20 +42,24 @@ class SettleGroupDebtUseCaseTest {
 
     private lateinit var groupRepository: GroupRepository
     private lateinit var groupMemberRepository: GroupMemberRepository
+    private lateinit var jointAccountMemberRepository: JointAccountMemberRepository
     private lateinit var accountRepository: AccountRepository
     private lateinit var transactionRepository: TransactionRepository
     private lateinit var debtSettlementRepository: DebtSettlementRepository
     private lateinit var userRepository: UserRepository
+    private lateinit var accountAccessService: AccountAccessService
     private lateinit var useCase: SettleGroupDebtUseCase
 
     @BeforeEach
     fun setup() {
         groupRepository = mock(GroupRepository::class.java)
         groupMemberRepository = mock(GroupMemberRepository::class.java)
+        jointAccountMemberRepository = mock(JointAccountMemberRepository::class.java)
         accountRepository = mock(AccountRepository::class.java)
         transactionRepository = mock(TransactionRepository::class.java)
         debtSettlementRepository = mock(DebtSettlementRepository::class.java)
         userRepository = mock(UserRepository::class.java)
+        accountAccessService = AccountAccessService(groupMemberRepository, jointAccountMemberRepository)
 
         useCase = SettleGroupDebtUseCase(
             groupRepository = groupRepository,
@@ -61,7 +67,8 @@ class SettleGroupDebtUseCaseTest {
             accountRepository = accountRepository,
             transactionRepository = transactionRepository,
             debtSettlementRepository = debtSettlementRepository,
-            userRepository = userRepository
+            userRepository = userRepository,
+            accountAccessService = accountAccessService
         )
     }
 
@@ -234,6 +241,112 @@ class SettleGroupDebtUseCaseTest {
                 amount = 20000,
                 targetMonth = 11,
                 targetYear = 1800
+            )
+        }
+    }
+
+    @Test
+    fun `should reject joint account as source or destination in debt settlement`() {
+        val userA = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val userB = UserEntity(Name("Maria"), Name("Silva"), Email("maria@finance.com"), PasswordHash("hash"))
+        val group = GroupEntity(id = UUID.randomUUID(), name = "Família")
+
+        val individualAcc = AccountEntity(
+            ownerId = userB.id,
+            name = "Conta Maria",
+            startBalance = 50000,
+            type = AccountType.CHECKING,
+            tax = null
+        )
+        val jointAcc = AccountEntity.createJoint(
+            groupId = group.id,
+            name = "Conjunta",
+            startBalance = 50000,
+            type = AccountType.CHECKING
+        )
+
+        `when`(groupRepository.findById(group.id)).thenReturn(group)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(group.id, userA.id)).thenReturn(true)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(group.id, userB.id)).thenReturn(true)
+        `when`(accountRepository.findById(jointAcc.id)).thenReturn(jointAcc)
+        `when`(accountRepository.findById(individualAcc.id)).thenReturn(individualAcc)
+
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                group.id,
+                userA.id,
+                SettleDebtRequest(
+                    creditorId = userB.id,
+                    amount = 10000,
+                    targetMonth = 11,
+                    targetYear = 2026,
+                    sourceAccountId = jointAcc.id,
+                    destinationAccountId = individualAcc.id
+                )
+            )
+        }
+
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                group.id,
+                userA.id,
+                SettleDebtRequest(
+                    creditorId = userB.id,
+                    amount = 10000,
+                    targetMonth = 11,
+                    targetYear = 2026,
+                    sourceAccountId = individualAcc.id,
+                    destinationAccountId = jointAcc.id
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `should fail if source account belongs to another group member`() {
+        val userA = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val userB = UserEntity(Name("Maria"), Name("Silva"), Email("maria@finance.com"), PasswordHash("hash"))
+        val group = GroupEntity(id = UUID.randomUUID(), name = "Família")
+
+        val otherMemberSourceAcc = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userB.id,
+            name = "Conta Maria",
+            startBalance = 100000,
+            balance = 100000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = group.id
+        )
+        val destAccount = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userB.id,
+            name = "Poupança Maria",
+            startBalance = 50000,
+            balance = 50000,
+            type = AccountType.SAVINGS,
+            tax = null,
+            groupId = group.id
+        )
+
+        `when`(groupRepository.findById(group.id)).thenReturn(group)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(group.id, userA.id)).thenReturn(true)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(group.id, userB.id)).thenReturn(true)
+        `when`(accountRepository.findById(otherMemberSourceAcc.id)).thenReturn(otherMemberSourceAcc)
+        `when`(accountRepository.findById(destAccount.id)).thenReturn(destAccount)
+
+        assertThrows<AccessDeniedException> {
+            useCase.execute(
+                group.id,
+                userA.id,
+                SettleDebtRequest(
+                    creditorId = userB.id,
+                    amount = 10000,
+                    targetMonth = 11,
+                    targetYear = 2026,
+                    sourceAccountId = otherMemberSourceAcc.id,
+                    destinationAccountId = destAccount.id
+                )
             )
         }
     }

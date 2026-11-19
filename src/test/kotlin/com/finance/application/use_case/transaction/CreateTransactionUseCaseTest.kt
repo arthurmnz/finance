@@ -2,6 +2,7 @@ package com.finance.application.use_case.transaction
 
 import com.finance.application.dto.transaction.AccountSplitRequest
 import com.finance.application.dto.transaction.CreateTransactionRequest
+import com.finance.application.service.AccountAccessService
 import com.finance.application.service.CreditCardService
 import com.finance.domain.entity.AccountEntity
 import com.finance.domain.entity.CategoryEntity
@@ -19,6 +20,7 @@ import com.finance.domain.exception.InvalidTransactionException
 import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.CategoryRepository
 import com.finance.domain.repository.GroupMemberRepository
+import com.finance.domain.repository.JointAccountMemberRepository
 import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.repository.UserRepository
 import com.finance.domain.value_object.Email
@@ -53,7 +55,9 @@ class CreateTransactionUseCaseTest {
     private lateinit var creditCardService: CreditCardService
     private lateinit var userRepository: UserRepository
     private lateinit var groupMemberRepository: GroupMemberRepository
+    private lateinit var jointAccountMemberRepository: JointAccountMemberRepository
     private lateinit var categoryRepository: CategoryRepository
+    private lateinit var accountAccessService: AccountAccessService
     private lateinit var useCase: CreateTransactionUseCase
 
     @BeforeEach
@@ -63,7 +67,9 @@ class CreateTransactionUseCaseTest {
         creditCardService = mock(CreditCardService::class.java)
         userRepository = mock(UserRepository::class.java)
         groupMemberRepository = mock(GroupMemberRepository::class.java)
+        jointAccountMemberRepository = mock(JointAccountMemberRepository::class.java)
         categoryRepository = mock(CategoryRepository::class.java)
+        accountAccessService = AccountAccessService(groupMemberRepository, jointAccountMemberRepository)
 
         useCase = CreateTransactionUseCase(
             transactionRepository = transactionRepository,
@@ -71,7 +77,8 @@ class CreateTransactionUseCaseTest {
             creditCardService = creditCardService,
             userRepository = userRepository,
             groupMemberRepository = groupMemberRepository,
-            categoryRepository = categoryRepository
+            categoryRepository = categoryRepository,
+            accountAccessService = accountAccessService
         )
     }
 
@@ -1085,5 +1092,282 @@ class CreateTransactionUseCaseTest {
         )
         assertEquals(2, validResult.size)
         assertEquals(groupSpecific.id, validResult[0].categoryId)
+    }
+
+    @Test
+    fun `should allow authorized joint account member in splits and reject unauthorized member or generatesDebt`() {
+        val userA = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val userB = UserEntity(Name("Maria"), Name("Silva"), Email("maria@finance.com"), PasswordHash("hash"))
+        val groupId = UUID.randomUUID()
+
+        val accA = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userA.id,
+            name = "Conta Arthur",
+            startBalance = 50000,
+            balance = 50000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = groupId
+        )
+        val jointAcc = AccountEntity.createJoint(
+            groupId = groupId,
+            name = "Conjunta Secreta",
+            startBalance = 50000,
+            type = AccountType.CHECKING
+        )
+
+        `when`(accountRepository.findById(accA.id)).thenReturn(accA)
+        `when`(accountRepository.findById(jointAcc.id)).thenReturn(jointAcc)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(groupId, userA.id)).thenReturn(true)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(groupId, userB.id)).thenReturn(true)
+        `when`(jointAccountMemberRepository.existsByAccountIdAndUserId(jointAcc.id, userA.id)).thenReturn(true)
+        `when`(jointAccountMemberRepository.existsByAccountIdAndUserId(jointAcc.id, userB.id)).thenReturn(false)
+        `when`(userRepository.findAll()).thenReturn(listOf(userA, userB))
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        // Split between individual and authorized joint account uses userA.id when splitAccount.ownerId is null
+        val splitResult = useCase.execute(
+            userA.id,
+            CreateTransactionRequest(
+                title = "Compra Split",
+                amount = 10000,
+                date = LocalDate.of(2026, 11, 10),
+                accountId = accA.id,
+                type = TransactionType.EXPENSE,
+                status = TransactionStatus.COMPLETED,
+                splits = listOf(
+                    AccountSplitRequest(accA.id, 6000),
+                    AccountSplitRequest(jointAcc.id, 4000)
+                )
+            )
+        )
+        assertEquals(2, splitResult.size)
+        assertEquals(userA.id, splitResult[1].responsibleId)
+
+        // userB belongs to groupId, NOT in joint_account_members -> AccessDeniedException without leaking name
+        val ex = assertThrows<AccessDeniedException> {
+            useCase.execute(
+                userB.id,
+                CreateTransactionRequest(
+                    title = "Invasão",
+                    amount = 1000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = jointAcc.id,
+                    type = TransactionType.EXPENSE
+                )
+            )
+        }
+        assertFalse(ex.message!!.contains("Conjunta Secreta"))
+
+        // Transfer with generatesDebt = true involving joint account is rejected
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userA.id,
+                CreateTransactionRequest(
+                    title = "Aporte Dívida",
+                    amount = 5000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = accA.id,
+                    type = TransactionType.TRANSFER,
+                    destinationAccountId = jointAcc.id,
+                    generatesDebt = true
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `should reject TRANSFER when source is another group member individual account, even within same group`() {
+        val userA = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val userB = UserEntity(Name("Maria"), Name("Silva"), Email("maria@finance.com"), PasswordHash("hash"))
+        val groupId = UUID.randomUUID()
+
+        val accA = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userA.id,
+            name = "Conta Arthur",
+            startBalance = 50000,
+            balance = 50000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = groupId
+        )
+        val accB = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userB.id,
+            name = "Conta Privada Maria",
+            startBalance = 40000,
+            balance = 40000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = groupId
+        )
+        val jointAcc = AccountEntity.createJoint(
+            groupId = groupId,
+            name = "Conjunta Casa",
+            startBalance = 10000,
+            type = AccountType.CHECKING
+        )
+
+        `when`(accountRepository.findById(accA.id)).thenReturn(accA)
+        `when`(accountRepository.findById(accB.id)).thenReturn(accB)
+        `when`(accountRepository.findById(jointAcc.id)).thenReturn(jointAcc)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(groupId, userA.id)).thenReturn(true)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(groupId, userB.id)).thenReturn(true)
+        `when`(jointAccountMemberRepository.existsByAccountIdAndUserId(jointAcc.id, userA.id)).thenReturn(true)
+        `when`(jointAccountMemberRepository.existsByAccountIdAndUserId(jointAcc.id, userB.id)).thenReturn(true)
+
+        // userA tentando fazer aporte da conta individual de userB (no mesmo grupo) para a conta conjunta -> bloqueado
+        val exToJoint = assertThrows<AccessDeniedException> {
+            useCase.execute(
+                userA.id,
+                CreateTransactionRequest(
+                    title = "Aporte indevido",
+                    amount = 5000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = accB.id,
+                    type = TransactionType.TRANSFER,
+                    destinationAccountId = jointAcc.id,
+                    status = TransactionStatus.COMPLETED,
+                    generatesDebt = false
+                )
+            )
+        }
+        assertFalse(exToJoint.message!!.contains("Conta Privada Maria"))
+
+        // userA tentando transferir da conta individual de userB para sua própria conta -> bloqueado
+        assertThrows<AccessDeniedException> {
+            useCase.execute(
+                userA.id,
+                CreateTransactionRequest(
+                    title = "Transferência indevida",
+                    amount = 5000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = accB.id,
+                    type = TransactionType.TRANSFER,
+                    destinationAccountId = accA.id,
+                    status = TransactionStatus.COMPLETED,
+                    generatesDebt = false
+                )
+            )
+        }
+
+        assertEquals(40000, accB.balance)
+        assertEquals(10000, jointAcc.balance)
+        assertEquals(50000, accA.balance)
+        verify(transactionRepository, never()).saveAll(anyNonNull())
+    }
+
+    @Test
+    fun `should allow TRANSFER from own individual account to joint or group member account, and from accessible joint account`() {
+        val userA = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val userB = UserEntity(Name("Maria"), Name("Silva"), Email("maria@finance.com"), PasswordHash("hash"))
+        val groupId = UUID.randomUUID()
+
+        val accA = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userA.id,
+            name = "Conta Arthur",
+            startBalance = 50000,
+            balance = 50000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = groupId
+        )
+        val accB = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = userB.id,
+            name = "Conta Maria",
+            startBalance = 20000,
+            balance = 20000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = groupId
+        )
+        val jointAcc = AccountEntity.createJoint(
+            groupId = groupId,
+            name = "Conjunta Casa",
+            startBalance = 10000,
+            type = AccountType.CHECKING
+        )
+
+        `when`(accountRepository.findById(accA.id)).thenReturn(accA)
+        `when`(accountRepository.findById(accB.id)).thenReturn(accB)
+        `when`(accountRepository.findById(jointAcc.id)).thenReturn(jointAcc)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(groupId, userA.id)).thenReturn(true)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(groupId, userB.id)).thenReturn(true)
+        `when`(jointAccountMemberRepository.existsByAccountIdAndUserId(jointAcc.id, userA.id)).thenReturn(true)
+        `when`(jointAccountMemberRepository.existsByAccountIdAndUserId(jointAcc.id, userB.id)).thenReturn(false)
+        `when`(userRepository.findAll()).thenReturn(listOf(userA, userB))
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        // 1. Própria conta -> conta conjunta acessível
+        val toJoint = useCase.execute(
+            userA.id,
+            CreateTransactionRequest(
+                title = "Aporte Casa",
+                amount = 10000,
+                date = LocalDate.of(2026, 11, 10),
+                accountId = accA.id,
+                type = TransactionType.TRANSFER,
+                destinationAccountId = jointAcc.id,
+                status = TransactionStatus.COMPLETED
+            )
+        )
+        assertEquals(1, toJoint.size)
+        assertEquals(userA.id, toJoint[0].responsibleId)
+        assertEquals(40000, accA.balance)
+        assertEquals(20000, jointAcc.balance)
+
+        // 2. Própria conta -> conta individual de outro integrante do grupo
+        val toColleague = useCase.execute(
+            userA.id,
+            CreateTransactionRequest(
+                title = "PIX Maria",
+                amount = 5000,
+                date = LocalDate.of(2026, 11, 11),
+                accountId = accA.id,
+                type = TransactionType.TRANSFER,
+                destinationAccountId = accB.id,
+                status = TransactionStatus.COMPLETED
+            )
+        )
+        assertEquals(1, toColleague.size)
+        assertEquals(35000, accA.balance)
+        assertEquals(25000, accB.balance)
+
+        // 3. Conta conjunta onde userA tem acesso -> própria conta individual
+        val fromJoint = useCase.execute(
+            userA.id,
+            CreateTransactionRequest(
+                title = "Reembolso Conjunta",
+                amount = 4000,
+                date = LocalDate.of(2026, 11, 12),
+                accountId = jointAcc.id,
+                type = TransactionType.TRANSFER,
+                destinationAccountId = accA.id,
+                status = TransactionStatus.COMPLETED
+            )
+        )
+        assertEquals(1, fromJoint.size)
+        assertEquals(16000, jointAcc.balance)
+        assertEquals(39000, accA.balance)
+
+        // 4. userB sem acesso à conta conjunta não pode transferir a partir dela
+        assertThrows<AccessDeniedException> {
+            useCase.execute(
+                userB.id,
+                CreateTransactionRequest(
+                    title = "Saque sem acesso",
+                    amount = 1000,
+                    date = LocalDate.of(2026, 11, 12),
+                    accountId = jointAcc.id,
+                    type = TransactionType.TRANSFER,
+                    destinationAccountId = accB.id,
+                    status = TransactionStatus.COMPLETED
+                )
+            )
+        }
     }
 }

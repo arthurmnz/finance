@@ -2,13 +2,13 @@ package com.finance.application.use_case.transaction
 
 import com.finance.application.dto.transaction.TransactionResponse
 import com.finance.application.mapper.TransactionDtoMapper
+import com.finance.application.service.AccountAccessService
 import com.finance.domain.entity.CreditCardInvoiceEntity
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccountNotFoundException
 import com.finance.domain.exception.TransactionNotFoundException
-import com.finance.domain.exception.UnauthorizedException
 import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.CategoryRepository
 import com.finance.domain.repository.CreditCardInvoiceRepository
@@ -26,16 +26,20 @@ class ToggleTransactionStatusUseCase(
     private val userRepository: UserRepository,
     private val categoryRepository: CategoryRepository,
     private val creditCardInvoiceRepository: CreditCardInvoiceRepository,
-    private val creditCardRepository: CreditCardRepository
+    private val creditCardRepository: CreditCardRepository,
+    private val accountAccessService: AccountAccessService
 ) {
     @Transactional
     fun execute(userId: UUID, transactionId: UUID): TransactionResponse {
         val transaction = transactionRepository.findById(transactionId)
             ?: throw TransactionNotFoundException()
 
-        if (transaction.responsibleId != userId) {
-            throw UnauthorizedException("You can only change status of transactions you created")
-        }
+        accountAccessService.requireTransactionMutationAccess(
+            transaction = transaction,
+            userId = userId,
+            accountRepository = accountRepository,
+            unauthorizedMessage = "You can only change status of transactions you created"
+        )
 
         val newStatus = if (transaction.status == TransactionStatus.COMPLETED) {
             TransactionStatus.PENDING

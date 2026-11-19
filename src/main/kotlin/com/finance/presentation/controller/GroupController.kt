@@ -17,7 +17,10 @@ import com.finance.application.dto.group.TransferOwnershipRequest
 import com.finance.application.dto.group.UpdateMemberRoleRequest
 import com.finance.application.dto.account.AccountResponse
 import com.finance.application.dto.account.AccountGroupRequestResponse
+import com.finance.application.dto.account.CreateJointAccountRequest
 import com.finance.application.dto.account.GroupAccountResponse
+import com.finance.application.dto.account.JointAccountSummaryResponse
+import com.finance.application.dto.account.UpdateJointAccountRequest
 import com.finance.application.dto.credit_card.CreditCardGroupRequestResponse
 import com.finance.application.dto.credit_card.CreditCardResponse
 import com.finance.application.service.CreditCardService
@@ -40,9 +43,14 @@ import com.finance.application.use_case.group.SettleGroupDebtUseCase
 import com.finance.application.use_case.group.TransferOwnershipUseCase
 import com.finance.application.use_case.group.UpdateMemberRoleUseCase
 import com.finance.application.use_case.account.ListGroupAccountsUseCase
+import com.finance.application.use_case.account.ListGroupJointAccountsUseCase
 import com.finance.application.use_case.account.ListPendingAccountGroupRequestsUseCase
 import com.finance.application.use_case.account.AcceptAccountGroupRequestUseCase
+import com.finance.application.use_case.account.CreateJointAccountUseCase
+import com.finance.application.use_case.account.DeleteJointAccountUseCase
+import com.finance.application.use_case.account.GetJointAccountSummaryUseCase
 import com.finance.application.use_case.account.RejectAccountGroupRequestUseCase
+import com.finance.application.use_case.account.UpdateJointAccountUseCase
 import com.finance.domain.entity.UserEntity
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.tags.Tag
@@ -87,7 +95,12 @@ class GroupController(
     private val getGroupUsedCategoriesUseCase: GetGroupUsedCategoriesUseCase,
     private val calculateGroupDebtsUseCase: CalculateGroupDebtsUseCase,
     private val settleGroupDebtUseCase: SettleGroupDebtUseCase,
-    private val forgiveGroupDebtUseCase: ForgiveGroupDebtUseCase
+    private val forgiveGroupDebtUseCase: ForgiveGroupDebtUseCase,
+    private val createJointAccountUseCase: CreateJointAccountUseCase,
+    private val listGroupJointAccountsUseCase: ListGroupJointAccountsUseCase,
+    private val updateJointAccountUseCase: UpdateJointAccountUseCase,
+    private val deleteJointAccountUseCase: DeleteJointAccountUseCase,
+    private val getJointAccountSummaryUseCase: GetJointAccountSummaryUseCase
 ) {
 
     // ── Grupo ──────────────────────────────────────────────────────────────
@@ -242,12 +255,71 @@ class GroupController(
     // ── Contas de Grupo ──────────────────────────────────────────────────────────
 
     @GetMapping("/{id}/accounts")
-    @Operation(summary = "Listar contas do grupo", description = "Lista todas as contas vinculadas a este grupo.")
+    @Operation(summary = "Listar contas do grupo", description = "Lista todas as contas vinculadas a este grupo e contas conjuntas que o usuário pode acessar.")
     fun listAccounts(
         @PathVariable id: UUID,
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<List<GroupAccountResponse>> {
         val response = listGroupAccountsUseCase.execute(id, authenticatedUser.id)
+        return ResponseEntity.ok(response)
+    }
+
+    // ── Contas Conjuntas do Grupo ────────────────────────────────────────────────
+
+    @PostMapping("/{id}/joint-accounts")
+    @Operation(summary = "Criar conta conjunta no grupo", description = "Cria uma conta conjunta no grupo com membros explicitamente autorizados. Apenas OWNER e ADMIN.")
+    fun createJointAccount(
+        @PathVariable id: UUID,
+        @RequestBody request: CreateJointAccountRequest,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<GroupAccountResponse> {
+        val response = createJointAccountUseCase.execute(id, request, authenticatedUser.id)
+        return ResponseEntity.status(HttpStatus.CREATED).body(response)
+    }
+
+    @GetMapping("/{id}/joint-accounts")
+    @Operation(summary = "Listar contas conjuntas do grupo", description = "Lista todas as contas conjuntas do grupo com seus membros autorizados. Apenas OWNER e ADMIN.")
+    fun listJointAccounts(
+        @PathVariable id: UUID,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<List<GroupAccountResponse>> {
+        val response = listGroupJointAccountsUseCase.execute(id, authenticatedUser.id)
+        return ResponseEntity.ok(response)
+    }
+
+    @PutMapping("/{id}/joint-accounts/{accountId}")
+    @Operation(summary = "Editar conta conjunta do grupo", description = "Edita dados e membros autorizados de uma conta conjunta do grupo. Apenas OWNER e ADMIN.")
+    fun updateJointAccount(
+        @PathVariable id: UUID,
+        @PathVariable accountId: UUID,
+        @RequestBody request: UpdateJointAccountRequest,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<GroupAccountResponse> {
+        val response = updateJointAccountUseCase.execute(id, accountId, request, authenticatedUser.id)
+        return ResponseEntity.ok(response)
+    }
+
+    @DeleteMapping("/{id}/joint-accounts/{accountId}")
+    @Operation(summary = "Excluir conta conjunta do grupo", description = "Exclui uma conta conjunta do grupo, suas transações e estorna aportes recebidos. Apenas OWNER e ADMIN.")
+    fun deleteJointAccount(
+        @PathVariable id: UUID,
+        @PathVariable accountId: UUID,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<Void> {
+        deleteJointAccountUseCase.execute(id, accountId, authenticatedUser.id)
+        return ResponseEntity.noContent().build()
+    }
+
+    @GetMapping("/{id}/joint-accounts/{accountId}/summary")
+    @Operation(summary = "Resumo e rateio da conta conjunta", description = "Retorna totais do período e rateio por membro autorizado da conta conjunta.")
+    fun getJointAccountSummary(
+        @PathVariable id: UUID,
+        @PathVariable accountId: UUID,
+        @RequestParam(required = false) month: Int?,
+        @RequestParam(required = false) year: Int?,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<JointAccountSummaryResponse> {
+        val response = getJointAccountSummaryUseCase.execute(id, accountId, month, year, authenticatedUser.id)
         return ResponseEntity.ok(response)
     }
 

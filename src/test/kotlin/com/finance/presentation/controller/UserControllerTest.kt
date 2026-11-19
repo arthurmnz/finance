@@ -15,6 +15,8 @@ import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.GroupInvitationRepository
 import com.finance.domain.repository.GroupMemberRepository
 import com.finance.domain.repository.GroupRepository
+import com.finance.domain.repository.JointAccountMemberRepository
+import com.finance.domain.repository.TransactionRepository
 import com.finance.presentation.exception.GlobalExceptionHandler
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -53,6 +55,8 @@ class UserControllerTest {
             groupInvitationRepository = mock(GroupInvitationRepository::class.java),
             accountRepository = mock(AccountRepository::class.java),
             accountGroupRequestRepository = mock(AccountGroupRequestRepository::class.java),
+            jointAccountMemberRepository = mock(JointAccountMemberRepository::class.java),
+            transactionRepository = mock(TransactionRepository::class.java),
         )
 
         val getUserDebtsSummaryUseCase = mock(GetUserDebtsSummaryUseCase::class.java)

@@ -1,5 +1,6 @@
 package com.finance.application.use_case.account
 
+import com.finance.application.service.AccountAccessService
 import com.finance.application.service.GroupService
 import com.finance.domain.exception.AccessDeniedException
 import com.finance.domain.exception.AccountNotFoundException
@@ -11,12 +12,19 @@ import java.util.UUID
 @Service
 class UnlinkAccountFromGroupUseCase(
     private val accountRepository: AccountRepository,
-    private val groupService: GroupService
+    private val groupService: GroupService,
+    private val accountAccessService: AccountAccessService
 ) {
 
     @Transactional
     fun execute(accountId: UUID, authenticatedUserId: UUID) {
         val account = accountRepository.findById(accountId) ?: throw AccountNotFoundException()
+        if (account.isJoint) {
+            if (!accountAccessService.canManage(account, authenticatedUserId)) {
+                throw AccessDeniedException("Você não tem permissão para desvincular esta conta.")
+            }
+            throw IllegalArgumentException("Contas conjuntas pertencem diretamente ao grupo e não podem ser desvinculadas.")
+        }
         val groupId = account.groupId ?: return // Já está desvinculada
 
         if (account.ownerId == authenticatedUserId) {

@@ -3,11 +3,10 @@ package com.finance.application.use_case.transaction
 import com.finance.application.dto.transaction.TransactionResponse
 import com.finance.application.mapper.CategoryBatchLoader
 import com.finance.application.mapper.TransactionDtoMapper
-import com.finance.domain.exception.AccessDeniedException
+import com.finance.application.service.AccountAccessService
 import com.finance.domain.exception.AccountNotFoundException
 import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.CategoryRepository
-import com.finance.domain.repository.GroupMemberRepository
 import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.repository.UserRepository
 import org.springframework.stereotype.Service
@@ -18,7 +17,7 @@ import java.util.UUID
 class ListAccountTransactionsUseCase(
     private val transactionRepository: TransactionRepository,
     private val accountRepository: AccountRepository,
-    private val groupMemberRepository: GroupMemberRepository,
+    private val accountAccessService: AccountAccessService,
     private val userRepository: UserRepository,
     private val categoryRepository: CategoryRepository
 ) {
@@ -31,11 +30,7 @@ class ListAccountTransactionsUseCase(
 
         if (authenticatedUserId != null) {
             val account = accountRepository.findById(accountId) ?: throw AccountNotFoundException()
-            val allowed = account.ownerId == authenticatedUserId ||
-                (account.groupId != null && groupMemberRepository.existsByGroupIdAndUserId(account.groupId!!, authenticatedUserId))
-            if (!allowed) {
-                throw AccessDeniedException("Você não tem acesso às transações desta conta.")
-            }
+            accountAccessService.requireAccess(account, authenticatedUserId, "Você não tem acesso às transações desta conta.")
         }
 
         val sourceTransactions = transactionRepository.findByAccountId(accountId)

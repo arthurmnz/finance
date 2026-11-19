@@ -6,7 +6,7 @@ import java.util.UUID
 
 class AccountEntity(
     val id: UUID,
-    val ownerId: UUID,
+    val ownerId: UUID?,
     name: String,
     startBalance: Int,
     balance: Int,
@@ -15,7 +15,8 @@ class AccountEntity(
     groupId: UUID?,
     includeInTotal: Boolean = true,
     val createdAt: LocalDateTime = LocalDateTime.now(),
-    updatedAt: LocalDateTime = LocalDateTime.now()
+    updatedAt: LocalDateTime = LocalDateTime.now(),
+    val isJoint: Boolean = false
 ) {
     var name: String = name
         private set
@@ -41,6 +42,17 @@ class AccountEntity(
     var updatedAt: LocalDateTime = updatedAt
         private set
 
+    init {
+        require(name.isNotBlank()) { "Nome da conta não pode ser vazio." }
+        require(name.trim().length <= 100) { "O nome da conta deve ter no máximo 100 caracteres." }
+        if (isJoint) {
+            require(ownerId == null) { "Conta conjunta não pode possuir um dono individual." }
+            require(groupId != null) { "Conta conjunta deve estar vinculada a um grupo." }
+        } else {
+            require(ownerId != null) { "Conta individual deve possuir um dono." }
+        }
+    }
+
     constructor(
         ownerId: UUID,
         name: String,
@@ -57,7 +69,8 @@ class AccountEntity(
         type = type,
         tax = validateTax(type, tax),
         groupId = null,
-        includeInTotal = includeInTotal
+        includeInTotal = includeInTotal,
+        isJoint = false
     ) {
         require(name.isNotBlank()) { "Nome da conta não pode ser vazio." }
     }
@@ -70,6 +83,7 @@ class AccountEntity(
         newIncludeInTotal: Boolean = this.includeInTotal
     ) {
         require(newName.isNotBlank()) { "Nome da conta não pode ser vazio." }
+        require(newName.trim().length <= 100) { "O nome da conta deve ter no máximo 100 caracteres." }
         
         // Se o saldo inicial mudar, ajustamos o saldo atual.
         if (this.startBalance != newStartBalance) {
@@ -84,13 +98,46 @@ class AccountEntity(
         this.updatedAt = LocalDateTime.now()
     }
 
+    /**
+     * Atualiza dados de uma conta conjunta preservando o saldo transacional quando
+     * [newBalance] não é informado explicitamente.
+     */
+    fun updateJoint(
+        newName: String,
+        newStartBalance: Int,
+        newBalance: Int? = null,
+        newType: AccountType,
+        newTax: Int? = null,
+        newIncludeInTotal: Boolean = this.includeInTotal
+    ) {
+        check(this.isJoint) { "Esta operação só é permitida para contas conjuntas." }
+        require(newName.isNotBlank()) { "Nome da conta não pode ser vazio." }
+        require(newName.trim().length <= 100) { "O nome da conta deve ter no máximo 100 caracteres." }
+
+        if (newBalance != null) {
+            this.balance = newBalance
+            this.startBalance = newStartBalance
+        } else if (this.startBalance != newStartBalance) {
+            this.balance += (newStartBalance - this.startBalance)
+            this.startBalance = newStartBalance
+        }
+
+        this.name = newName.trim()
+        this.type = newType
+        this.tax = validateTax(newType, newTax)
+        this.includeInTotal = newIncludeInTotal
+        this.updatedAt = LocalDateTime.now()
+    }
+
     fun linkToGroup(newGroupId: UUID) {
+        check(!this.isJoint) { "Conta conjunta não pode ser vinculada manualmente a outro grupo." }
         check(this.groupId == null) { "Conta já está vinculada a um grupo." }
         this.groupId = newGroupId
         this.updatedAt = LocalDateTime.now()
     }
 
     fun unlinkFromGroup() {
+        check(!this.isJoint) { "Conta conjunta não pode ser desvinculada do grupo." }
         this.groupId = null
         this.updatedAt = LocalDateTime.now()
     }
@@ -106,6 +153,29 @@ class AccountEntity(
     }
 
     companion object {
+        fun createJoint(
+            groupId: UUID,
+            name: String,
+            startBalance: Int,
+            type: AccountType,
+            tax: Int? = null,
+            includeInTotal: Boolean = true
+        ): AccountEntity {
+            require(name.isNotBlank()) { "Nome da conta não pode ser vazio." }
+            return AccountEntity(
+                id = UUID.randomUUID(),
+                ownerId = null,
+                name = name.trim(),
+                startBalance = startBalance,
+                balance = startBalance,
+                type = type,
+                tax = validateTax(type, tax),
+                groupId = groupId,
+                includeInTotal = includeInTotal,
+                isJoint = true
+            )
+        }
+
         private fun validateTax(type: AccountType, tax: Int?): Int? {
             if (type == AccountType.INVESTMENTS || type == AccountType.SAVINGS) {
                 requireNotNull(tax) { "Contas de investimento ou poupança exigem uma taxa definida." }

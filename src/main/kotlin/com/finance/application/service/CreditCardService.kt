@@ -49,14 +49,15 @@ class CreditCardService(
     private val groupMemberRepository: GroupMemberRepository,
     private val groupService: GroupService,
     private val userRepository: UserRepository,
-    private val categoryRepository: CategoryRepository
+    private val categoryRepository: CategoryRepository,
+    private val accountAccessService: AccountAccessService
 ) {
 
     @Transactional
     fun create(request: CreateCreditCardRequest, userId: UUID): CreditCardResponse {
         val account = accountRepository.findById(request.accountId) ?: throw AccountNotFoundException()
-        if (account.ownerId != userId) {
-            throw AccessDeniedException("Você só pode vincular o cartão a uma conta sua.")
+        if (account.isJoint || account.ownerId != userId) {
+            throw AccessDeniedException("Você só pode vincular o cartão a uma conta individual sua.")
         }
         val card = CreditCardEntity(
             ownerId = userId,
@@ -77,8 +78,8 @@ class CreditCardService(
             throw AccessDeniedException("Você só pode editar seus próprios cartões.")
         }
         val account = accountRepository.findById(request.accountId) ?: throw AccountNotFoundException()
-        if (account.ownerId != userId) {
-            throw AccessDeniedException("Você só pode vincular o cartão a uma conta sua.")
+        if (account.isJoint || account.ownerId != userId) {
+            throw AccessDeniedException("Você só pode vincular o cartão a uma conta individual sua.")
         }
         card.update(
             newName = request.name,
@@ -214,6 +215,7 @@ class CreditCardService(
         val card = requireCardAccess(cardId, userId)
         val targetAccountId = request.accountId ?: card.accountId
         val account = accountRepository.findById(targetAccountId) ?: throw AccountNotFoundException("Conta para pagamento não encontrada.")
+        accountAccessService.requireAccess(account, userId, "Você não tem acesso à conta informada para pagamento da fatura.")
 
         val invoice = invoiceRepository.findByCardAndPeriod(cardId, month, year)
             ?: CreditCardInvoiceEntity(creditCardId = cardId, month = month, year = year)

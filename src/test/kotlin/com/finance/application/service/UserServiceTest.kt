@@ -107,6 +107,9 @@ class InMemoryUserRepository : UserRepository {
 
     override fun findById(id: UUID): UserEntity? = storage[id]
 
+    override fun findAllByIdIn(ids: Collection<UUID>): List<UserEntity> =
+        ids.distinct().mapNotNull { storage[it] }
+
     override fun findByEmail(email: Email): UserEntity? =
         storage.values.firstOrNull { it.email.normalized == email.normalized }
 
