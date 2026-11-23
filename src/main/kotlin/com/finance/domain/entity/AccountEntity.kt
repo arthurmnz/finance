@@ -1,6 +1,7 @@
 package com.finance.domain.entity
 
 import com.finance.domain.enum.AccountType
+import com.finance.domain.exception.InvalidTransactionException
 import java.time.LocalDateTime
 import java.util.UUID
 
@@ -143,12 +144,20 @@ class AccountEntity(
     }
 
     fun addBalance(amount: Int) {
-        this.balance += amount
+        val nextBalance = this.balance.toLong() + amount.toLong()
+        if (nextBalance > Int.MAX_VALUE || nextBalance < Int.MIN_VALUE) {
+            throw InvalidTransactionException("O saldo resultante da conta excede o limite suportado.")
+        }
+        this.balance = nextBalance.toInt()
         this.updatedAt = LocalDateTime.now()
     }
 
     fun subtractBalance(amount: Int) {
-        this.balance -= amount
+        val nextBalance = this.balance.toLong() - amount.toLong()
+        if (nextBalance > Int.MAX_VALUE || nextBalance < Int.MIN_VALUE) {
+            throw InvalidTransactionException("O saldo resultante da conta excede o limite suportado.")
+        }
+        this.balance = nextBalance.toInt()
         this.updatedAt = LocalDateTime.now()
     }
 

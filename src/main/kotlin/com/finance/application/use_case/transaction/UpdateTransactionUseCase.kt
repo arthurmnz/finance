@@ -4,10 +4,10 @@ import com.finance.application.dto.transaction.TransactionResponse
 import com.finance.application.dto.transaction.UpdateTransactionRequest
 import com.finance.application.mapper.TransactionDtoMapper
 import com.finance.application.service.AccountAccessService
+import com.finance.application.service.InvoicePaymentTransactionResolver
 import com.finance.application.service.ResolvedTransactionCategories
 import com.finance.application.service.TransactionCategoryValidator
 import com.finance.application.service.TransactionInputValidator
-import com.finance.domain.entity.CreditCardInvoiceEntity
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.enum.CategoryLevel
 import com.finance.domain.enum.RecurrenceFrequency
@@ -25,6 +25,7 @@ import com.finance.domain.repository.CreditCardRepository
 import com.finance.domain.repository.GroupMemberRepository
 import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.repository.UserRepository
+import com.finance.domain.service.InstallmentAmountAllocator
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDate
@@ -56,6 +57,13 @@ class UpdateTransactionUseCase(
             invoiceMonth = request.invoiceMonth,
             invoiceYear = request.invoiceYear
         )
+
+        val normalizedMode = request.installmentAmountMode?.uppercase()
+        if (normalizedMode != null && normalizedMode !in VALID_UPDATE_INSTALLMENT_MODES) {
+            throw InvalidTransactionException(
+                "Modo de valor de parcela inválido. Valores permitidos: TOTAL, INSTALLMENT."
+            )
+        }
 
         val transaction = transactionRepository.findById(transactionId)
             ?: throw TransactionNotFoundException()
@@ -134,12 +142,38 @@ class UpdateTransactionUseCase(
 
         val transactionsToUpdate = mutableListOf(transaction)
         var shouldRegenerateFutures = false
+        var regeneratedAllocatedAmounts: List<Int>? = null
+        var inPlaceAllocatedAmounts: List<Int>? = null
+
+        if (normalizedMode == "TOTAL" && (!request.updateAllFuture || transaction.recurrenceGroupId == null)) {
+            throw InvalidTransactionException(
+                "O modo TOTAL na edição só é suportado para parcelamentos finitos com updateAllFuture = true."
+            )
+        }
 
         if (request.updateAllFuture && transaction.recurrenceGroupId != null) {
-            val futureTransactions = transactionRepository.findFutureTransactionsByGroupId(
-                groupId = transaction.recurrenceGroupId,
-                date = transaction.date
-            )
+            val futureTransactions = if (transaction.installmentNumber != null) {
+                transactionRepository.findFutureTransactionsInGroup(
+                    groupId = transaction.recurrenceGroupId,
+                    date = transaction.date,
+                    installmentNumber = transaction.installmentNumber
+                )
+            } else {
+                transactionRepository.findFutureTransactionsByGroupId(
+                    groupId = transaction.recurrenceGroupId,
+                    date = transaction.date
+                )
+            }
+
+            for (futureTx in futureTransactions) {
+                accountAccessService.requireTransactionMutationAccess(
+                    transaction = futureTx,
+                    userId = userId,
+                    accountRepository = accountRepository,
+                    creditCardRepository = creditCardRepository,
+                    unauthorizedMessage = "You can only edit transactions you created"
+                )
+            }
 
             val recurrenceChanged = (request.isRecurring != null && request.isRecurring == false) ||
                     (request.recurrenceFrequency != null && request.recurrenceFrequency != transaction.recurrenceFrequency) ||
@@ -148,6 +182,28 @@ class UpdateTransactionUseCase(
                     (request.recurrenceInstallments != null)
 
             if (recurrenceChanged) {
+                val willRegenerate = request.isRecurring != false
+                if (willRegenerate && request.isRecurring == true) {
+                    val regInterval = request.recurrenceInterval ?: transaction.recurrenceInterval ?: 1
+                    val regIsInf = request.isInfinite ?: transaction.isInfinite
+                    val regLimit = if (regIsInf) 12 else (request.recurrenceInstallments ?: 12)
+                    TransactionInputValidator.validateRecurrenceLimits(regLimit, regInterval)
+                    if (normalizedMode == "TOTAL") {
+                        if (regIsInf) {
+                            throw InvalidTransactionException("O modo TOTAL não é suportado para recorrências infinitas.")
+                        }
+                        regeneratedAllocatedAmounts = InstallmentAmountAllocator.allocate(
+                            totalCents = request.amount,
+                            count = 1 + regLimit,
+                            strategy = request.remainderStrategy
+                        )
+                    } else if (!regIsInf && request.amount.toLong() * (1 + regLimit) > Int.MAX_VALUE) {
+                        throw InvalidTransactionException("O valor total do parcelamento excede o limite máximo permitido.")
+                    }
+                } else if (normalizedMode == "TOTAL") {
+                    throw InvalidTransactionException("O modo TOTAL na edição requer recorrência ativa.")
+                }
+
                 for (futureTx in futureTransactions) {
                     if (futureTx.creditCardId == null && futureTx.status == TransactionStatus.COMPLETED) {
                         val acc = accountRepository.findById(futureTx.accountId) ?: continue
@@ -166,44 +222,105 @@ class UpdateTransactionUseCase(
                     }
                 }
                 transactionRepository.deleteAll(futureTransactions.map { it.id })
-                shouldRegenerateFutures = request.isRecurring != false
+                shouldRegenerateFutures = willRegenerate
             } else {
-                transactionsToUpdate.addAll(futureTransactions)
-            }
-        }
-
-        for (tx in transactionsToUpdate) {
-            if (tx.creditCardId == null) {
-                val account = accountRepository.findById(tx.accountId)
-                    ?: throw AccountNotFoundException("Account not found")
-
-                if (tx.status == TransactionStatus.COMPLETED) {
-                    when (tx.type) {
-                        TransactionType.INCOME -> account.subtractBalance(tx.amount)
-                        TransactionType.EXPENSE -> account.addBalance(tx.amount)
-                        TransactionType.TRANSFER -> {
-                            account.addBalance(tx.amount)
-                            val destinationAccount = tx.destinationAccountId?.let { accountRepository.findById(it) }
-                                ?: throw AccountNotFoundException("Destination account not found")
-                            destinationAccount.subtractBalance(tx.amount)
-                            accountRepository.save(destinationAccount)
+                val sortedFutures = futureTransactions.sortedWith(
+                    compareBy<TransactionEntity, Int?>(nullsLast()) { it.installmentNumber }
+                        .thenBy { it.date }
+                )
+                transactionsToUpdate.addAll(sortedFutures)
+                if (normalizedMode == "TOTAL") {
+                    if (transaction.isInfinite) {
+                        throw InvalidTransactionException("O modo TOTAL não é suportado para recorrências infinitas.")
+                    }
+                    if (transaction.installmentNumber != null && transaction.installmentNumber > 1) {
+                        throw InvalidTransactionException(
+                            "Para redistribuir o valor total, edite a partir da 1ª parcela ou utilize a edição em lote do grupo."
+                        )
+                    }
+                    inPlaceAllocatedAmounts = InstallmentAmountAllocator.allocate(
+                        totalCents = request.amount,
+                        count = transactionsToUpdate.size,
+                        strategy = request.remainderStrategy
+                    )
+                } else if (transactionsToUpdate.size > 1) {
+                    val willPropagateToFutures = request.updateFutureAmounts == true ||
+                        (request.updateFutureAmounts == null &&
+                            (sortedFutures.any { it.isInfinite } || request.amount != transaction.amount))
+                    if (willPropagateToFutures) {
+                        if (request.amount.toLong() * transactionsToUpdate.size > Int.MAX_VALUE) {
+                            throw InvalidTransactionException("O valor total do parcelamento excede o limite máximo permitido.")
+                        }
+                    } else if (!transaction.isInfinite) {
+                        val projectedTotal = request.amount.toLong() + sortedFutures.sumOf { it.amount.toLong() }
+                        if (projectedTotal > Int.MAX_VALUE) {
+                            throw InvalidTransactionException("O valor total do parcelamento excede o limite máximo permitido.")
                         }
                     }
                 }
+            }
+        }
+
+        val originalAmount = transaction.amount
+
+        for ((index, tx) in transactionsToUpdate.withIndex()) {
+            val targetAmount = when {
+                regeneratedAllocatedAmounts != null && tx.id == transactionId -> regeneratedAllocatedAmounts[0]
+                inPlaceAllocatedAmounts != null -> inPlaceAllocatedAmounts[index]
+                tx.id == transactionId -> request.amount
+                request.updateFutureAmounts == true -> request.amount
+                request.updateFutureAmounts == null && (tx.isInfinite || request.amount != originalAmount) -> request.amount
+                else -> tx.amount
+            }
+
+            if (tx.creditCardId == null) {
+                val account = accountRepository.findById(tx.accountId)
+                    ?: throw AccountNotFoundException("Account not found")
 
                 val targetStatus = if (tx.id == transactionId) request.status else tx.status
                 val targetDate = if (tx.id == transactionId) request.date else tx.date
                 val targetGeneratesDebt = request.generatesDebt ?: tx.generatesDebt
                 val oldStatus = tx.status
                 val oldAmount = tx.amount
-                val invoice = findInvoiceForPaymentTx(tx)
+                val invoice = InvoicePaymentTransactionResolver.findInvoiceForPaymentTx(
+                    tx = tx,
+                    creditCardInvoiceRepository = creditCardInvoiceRepository,
+                    creditCardRepository = creditCardRepository
+                )
+
+                val oldEffectiveAmount = if (oldStatus == TransactionStatus.COMPLETED) oldAmount else 0
+                val newEffectiveAmount = if (targetStatus == TransactionStatus.COMPLETED) targetAmount else 0
+                val delta = newEffectiveAmount - oldEffectiveAmount
+
+                if (delta != 0) {
+                    when (tx.type) {
+                        TransactionType.INCOME -> {
+                            if (delta > 0) account.addBalance(delta) else account.subtractBalance(-delta)
+                        }
+                        TransactionType.EXPENSE -> {
+                            if (delta > 0) account.subtractBalance(delta) else account.addBalance(-delta)
+                        }
+                        TransactionType.TRANSFER -> {
+                            val destinationAccount = tx.destinationAccountId?.let { accountRepository.findById(it) }
+                                ?: throw AccountNotFoundException("Destination account not found")
+                            if (delta > 0) {
+                                account.subtractBalance(delta)
+                                destinationAccount.addBalance(delta)
+                            } else {
+                                account.addBalance(-delta)
+                                destinationAccount.subtractBalance(-delta)
+                            }
+                            accountRepository.save(destinationAccount)
+                        }
+                    }
+                }
 
                 val effectiveCatId = if (categoryUnchanged) transaction.categoryId else resolvedCategories.effectiveCategoryId
                 val effectiveGenCatId = if (categoryUnchanged) transaction.generalCategoryId else resolvedCategories.effectiveGeneralCategoryId
 
                 tx.update(
                     newTitle = request.title,
-                    newAmount = request.amount,
+                    newAmount = targetAmount,
                     newDate = targetDate,
                     newCategoryId = effectiveCatId,
                     newStatus = targetStatus,
@@ -212,27 +329,15 @@ class UpdateTransactionUseCase(
                 )
 
                 if (invoice != null) {
-                    val oldPaid = if (oldStatus == TransactionStatus.COMPLETED) oldAmount else 0
-                    val newPaid = if (targetStatus == TransactionStatus.COMPLETED) request.amount else 0
-                    if (newPaid != oldPaid) {
-                        invoice.setPaidAmount((invoice.paidAmount + (newPaid - oldPaid)).coerceAtLeast(0))
+                    if (newEffectiveAmount != oldEffectiveAmount) {
+                        val updatedPaid = (invoice.paidAmount.toLong() + delta.toLong())
+                            .coerceIn(0L, Int.MAX_VALUE.toLong())
+                            .toInt()
+                        invoice.setPaidAmount(updatedPaid)
                         creditCardInvoiceRepository.save(invoice)
                     }
                 }
 
-                if (targetStatus == TransactionStatus.COMPLETED) {
-                    when (tx.type) {
-                        TransactionType.INCOME -> account.addBalance(request.amount)
-                        TransactionType.EXPENSE -> account.subtractBalance(request.amount)
-                        TransactionType.TRANSFER -> {
-                            account.subtractBalance(request.amount)
-                            val destinationAccount = tx.destinationAccountId?.let { accountRepository.findById(it) }
-                                ?: throw AccountNotFoundException("Destination account not found")
-                            destinationAccount.addBalance(request.amount)
-                            accountRepository.save(destinationAccount)
-                        }
-                    }
-                }
                 accountRepository.save(account)
             } else {
                 val targetDate = if (tx.id == transactionId) request.date else tx.date
@@ -243,7 +348,7 @@ class UpdateTransactionUseCase(
 
                 tx.update(
                     newTitle = request.title,
-                    newAmount = request.amount,
+                    newAmount = targetAmount,
                     newDate = targetDate,
                     newCategoryId = effectiveCatId,
                     newStatus = tx.status,
@@ -322,7 +427,7 @@ class UpdateTransactionUseCase(
                 }
                 val newTx = TransactionEntity(
                     title = request.title,
-                    amount = request.amount,
+                    amount = regeneratedAllocatedAmounts?.get(i) ?: request.amount,
                     date = itemDate,
                     responsibleId = transaction.responsibleId,
                     accountId = transaction.accountId,
@@ -409,18 +514,7 @@ class UpdateTransactionUseCase(
         }
     }
 
-    private fun findInvoiceForPaymentTx(tx: TransactionEntity): CreditCardInvoiceEntity? {
-        if (tx.creditCardInvoiceId != null) {
-            return creditCardInvoiceRepository.findById(tx.creditCardInvoiceId)
-        }
-        val regex = Regex("""^Pagamento fatura (.+?) \((\d{1,2})/(\d{4})\)$""")
-        val match = regex.find(tx.title) ?: return null
-        val (cardName, monthStr, yearStr) = match.destructured
-        val month = monthStr.toIntOrNull() ?: return null
-        val year = yearStr.toIntOrNull() ?: return null
-
-        val cards = creditCardRepository.findAllByOwnerId(tx.responsibleId)
-        val card = cards.find { it.name.equals(cardName.trim(), ignoreCase = true) } ?: return null
-        return creditCardInvoiceRepository.findByCardAndPeriod(card.id, month, year)
+    companion object {
+        private val VALID_UPDATE_INSTALLMENT_MODES = setOf("TOTAL", "INSTALLMENT")
     }
 }

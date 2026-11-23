@@ -12,6 +12,7 @@ import com.finance.domain.entity.UserEntity
 import com.finance.domain.enum.AccountType
 import com.finance.domain.enum.CategoryLevel
 import com.finance.domain.enum.CategoryType
+import com.finance.domain.enum.InstallmentRemainderStrategy
 import com.finance.domain.enum.RecurrenceFrequency
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
@@ -1827,5 +1828,396 @@ class CreateTransactionUseCaseTest {
                 )
             )
         }
+    }
+
+    @Test
+    fun `should divide 19994 cents in 4x accurately across all 4 remainder strategies`() {
+        val user = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val card = CreditCardEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            accountId = UUID.randomUUID(),
+            name = "Nubank",
+            limitAmount = 500000,
+            closingDay = 10,
+            dueDay = 17
+        )
+        `when`(creditCardService.requireCardAccess(card.id, user.id)).thenReturn(card)
+        `when`(userRepository.findAll()).thenReturn(listOf(user))
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        val expectedByStrategy = mapOf(
+            InstallmentRemainderStrategy.FIRST_INSTALLMENT to listOf(5000, 4998, 4998, 4998),
+            InstallmentRemainderStrategy.LAST_INSTALLMENT to listOf(4998, 4998, 4998, 5000),
+            InstallmentRemainderStrategy.DISTRIBUTE_FIRST to listOf(4999, 4999, 4998, 4998),
+            InstallmentRemainderStrategy.DISTRIBUTE_LAST to listOf(4998, 4998, 4999, 4999)
+        )
+
+        for ((strategy, expectedAmounts) in expectedByStrategy) {
+            val result = useCase.execute(
+                user.id,
+                CreateTransactionRequest(
+                    title = "Compra $strategy",
+                    amount = 19994,
+                    date = LocalDate.of(2026, 11, 5),
+                    accountId = card.accountId,
+                    type = TransactionType.EXPENSE,
+                    creditCardId = card.id,
+                    isRecurring = true,
+                    recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                    recurrenceInterval = 1,
+                    recurrenceInstallments = 4,
+                    isInfinite = false,
+                    installmentAmountMode = "total",
+                    remainderStrategy = strategy
+                )
+            )
+            assertEquals(expectedAmounts, result.map { it.amount })
+            assertEquals(19994, result.sumOf { it.amount })
+            assertEquals(listOf(1, 2, 3, 4), result.map { it.installmentNumber })
+            assertEquals(listOf(4, 4, 4, 4), result.map { it.totalInstallments })
+        }
+    }
+
+    @Test
+    fun `should support CUSTOM installment amounts and validate all custom rules`() {
+        val user = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val card = CreditCardEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            accountId = UUID.randomUUID(),
+            name = "Nubank",
+            limitAmount = 500000,
+            closingDay = 10,
+            dueDay = 17
+        )
+        `when`(creditCardService.requireCardAccess(card.id, user.id)).thenReturn(card)
+        `when`(userRepository.findAll()).thenReturn(listOf(user))
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        val customResult = useCase.execute(
+            user.id,
+            CreateTransactionRequest(
+                title = "Compra Custom",
+                amount = 19994,
+                date = LocalDate.of(2026, 11, 5),
+                accountId = card.accountId,
+                type = TransactionType.EXPENSE,
+                creditCardId = card.id,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInterval = 1,
+                recurrenceInstallments = 4,
+                isInfinite = false,
+                installmentAmountMode = "custom",
+                installmentAmounts = listOf(7000, 5000, 4000, 3994)
+            )
+        )
+        assertEquals(listOf(7000, 5000, 4000, 3994), customResult.map { it.amount })
+
+        // Também deve funcionar quando installmentAmounts é informado com modo padrão
+        val implicitCustomResult = useCase.execute(
+            user.id,
+            CreateTransactionRequest(
+                title = "Compra Custom Implícita",
+                amount = 19994,
+                date = LocalDate.of(2026, 11, 5),
+                accountId = card.accountId,
+                type = TransactionType.EXPENSE,
+                creditCardId = card.id,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInstallments = 4,
+                installmentAmounts = listOf(4000, 4000, 5994, 6000)
+            )
+        )
+        assertEquals(listOf(4000, 4000, 5994, 6000), implicitCustomResult.map { it.amount })
+
+        // Não recorrente -> erro
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                user.id,
+                CreateTransactionRequest(
+                    title = "Sem recorrência",
+                    amount = 10000,
+                    date = LocalDate.of(2026, 11, 5),
+                    accountId = card.accountId,
+                    type = TransactionType.EXPENSE,
+                    isRecurring = false,
+                    installmentAmountMode = "CUSTOM",
+                    installmentAmounts = listOf(10000)
+                )
+            )
+        }
+        // Infinita -> erro
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                user.id,
+                CreateTransactionRequest(
+                    title = "Infinita",
+                    amount = 10000,
+                    date = LocalDate.of(2026, 11, 5),
+                    accountId = card.accountId,
+                    type = TransactionType.EXPENSE,
+                    isRecurring = true,
+                    recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                    isInfinite = true,
+                    installmentAmounts = listOf(5000, 5000)
+                )
+            )
+        }
+        // Splits + CUSTOM -> erro
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                user.id,
+                CreateTransactionRequest(
+                    title = "Splits com custom",
+                    amount = 10000,
+                    date = LocalDate.of(2026, 11, 5),
+                    accountId = card.accountId,
+                    type = TransactionType.EXPENSE,
+                    isRecurring = true,
+                    recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                    recurrenceInstallments = 2,
+                    installmentAmountMode = "CUSTOM",
+                    installmentAmounts = listOf(5000, 5000),
+                    splits = listOf(AccountSplitRequest(UUID.randomUUID(), 5000), AccountSplitRequest(UUID.randomUUID(), 5000))
+                )
+            )
+        }
+        // Lista nula com modo CUSTOM -> erro
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                user.id,
+                CreateTransactionRequest(
+                    title = "Lista nula",
+                    amount = 10000,
+                    date = LocalDate.of(2026, 11, 5),
+                    accountId = card.accountId,
+                    type = TransactionType.EXPENSE,
+                    isRecurring = true,
+                    recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                    recurrenceInstallments = 2,
+                    installmentAmountMode = "CUSTOM",
+                    installmentAmounts = null
+                )
+            )
+        }
+        // Tamanho diferente -> erro
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                user.id,
+                CreateTransactionRequest(
+                    title = "Tamanho errado",
+                    amount = 10000,
+                    date = LocalDate.of(2026, 11, 5),
+                    accountId = card.accountId,
+                    type = TransactionType.EXPENSE,
+                    isRecurring = true,
+                    recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                    recurrenceInstallments = 3,
+                    installmentAmounts = listOf(5000, 5000)
+                )
+            )
+        }
+        // Parcela <= 0 -> erro
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                user.id,
+                CreateTransactionRequest(
+                    title = "Parcela zero",
+                    amount = 10000,
+                    date = LocalDate.of(2026, 11, 5),
+                    accountId = card.accountId,
+                    type = TransactionType.EXPENSE,
+                    isRecurring = true,
+                    recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                    recurrenceInstallments = 2,
+                    installmentAmounts = listOf(10000, 0)
+                )
+            )
+        }
+        // Soma divergente / overflow -> erro
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                user.id,
+                CreateTransactionRequest(
+                    title = "Soma errada",
+                    amount = 10000,
+                    date = LocalDate.of(2026, 11, 5),
+                    accountId = card.accountId,
+                    type = TransactionType.EXPENSE,
+                    isRecurring = true,
+                    recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                    recurrenceInstallments = 2,
+                    installmentAmounts = listOf(5000, 4999)
+                )
+            )
+        }
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                user.id,
+                CreateTransactionRequest(
+                    title = "Overflow soma",
+                    amount = Int.MAX_VALUE,
+                    date = LocalDate.of(2026, 11, 5),
+                    accountId = card.accountId,
+                    type = TransactionType.EXPENSE,
+                    isRecurring = true,
+                    recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                    recurrenceInstallments = 2,
+                    installmentAmounts = listOf(Int.MAX_VALUE, 1)
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `should allocate splits with remainder in TOTAL mode and reject invalid mode, overflow and totalCents less than installments`() {
+        val user = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val acc1 = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            name = "Conta 1",
+            startBalance = 100000,
+            balance = 100000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = null
+        )
+        val acc2 = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            name = "Conta 2",
+            startBalance = 100000,
+            balance = 100000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = null
+        )
+
+        `when`(accountRepository.findById(acc1.id)).thenReturn(acc1)
+        `when`(accountRepository.findById(acc2.id)).thenReturn(acc2)
+        `when`(userRepository.findAll()).thenReturn(listOf(user))
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        val splitResult = useCase.execute(
+            user.id,
+            CreateTransactionRequest(
+                title = "Rateio Parcelado",
+                amount = 19994,
+                date = LocalDate.of(2026, 11, 10),
+                accountId = acc1.id,
+                type = TransactionType.EXPENSE,
+                status = TransactionStatus.COMPLETED,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInstallments = 4,
+                installmentAmountMode = "TOTAL",
+                remainderStrategy = InstallmentRemainderStrategy.DISTRIBUTE_FIRST,
+                splits = listOf(
+                    AccountSplitRequest(acc1.id, 10001),
+                    AccountSplitRequest(acc2.id, 9993)
+                )
+            )
+        )
+        val acc1Txs = splitResult.filter { it.accountId == acc1.id }
+        val acc2Txs = splitResult.filter { it.accountId == acc2.id }
+        assertEquals(listOf(2501, 2500, 2500, 2500), acc1Txs.map { it.amount })
+        assertEquals(listOf(2499, 2498, 2498, 2498), acc2Txs.map { it.amount })
+        assertEquals(100000 - 2501, acc1.balance)
+        assertEquals(100000 - 2499, acc2.balance)
+
+        // Split com valor menor que número de parcelas não deve mutar nenhuma conta
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                user.id,
+                CreateTransactionRequest(
+                    title = "Split insuficiente",
+                    amount = 10002,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = acc1.id,
+                    type = TransactionType.EXPENSE,
+                    status = TransactionStatus.COMPLETED,
+                    isRecurring = true,
+                    recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                    recurrenceInstallments = 4,
+                    installmentAmountMode = "TOTAL",
+                    splits = listOf(
+                        AccountSplitRequest(acc1.id, 10000),
+                        AccountSplitRequest(acc2.id, 2)
+                    )
+                )
+            )
+        }
+        assertEquals(100000 - 2501, acc1.balance)
+
+        // totalCents < installments
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                user.id,
+                CreateTransactionRequest(
+                    title = "Centavos insuficientes",
+                    amount = 3,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = acc1.id,
+                    type = TransactionType.EXPENSE,
+                    isRecurring = true,
+                    recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                    recurrenceInstallments = 4,
+                    installmentAmountMode = "TOTAL"
+                )
+            )
+        }
+
+        // Modo inválido
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                user.id,
+                CreateTransactionRequest(
+                    title = "Modo inválido",
+                    amount = 10000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = acc1.id,
+                    type = TransactionType.EXPENSE,
+                    installmentAmountMode = "INVALID"
+                )
+            )
+        }
+
+        // Overflow no modo INSTALLMENT
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                user.id,
+                CreateTransactionRequest(
+                    title = "Overflow",
+                    amount = 1_000_000_000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = acc1.id,
+                    type = TransactionType.EXPENSE,
+                    isRecurring = true,
+                    recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                    recurrenceInstallments = 3,
+                    installmentAmountMode = "INSTALLMENT"
+                )
+            )
+        }
+
+        // Modo null deve manter fallback INSTALLMENT
+        val nullModeResult = useCase.execute(
+            user.id,
+            CreateTransactionRequest(
+                title = "Modo null",
+                amount = 5000,
+                date = LocalDate.of(2026, 11, 10),
+                accountId = acc1.id,
+                type = TransactionType.EXPENSE,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInstallments = 2,
+                installmentAmountMode = null
+            )
+        )
+        assertEquals(listOf(5000, 5000), nullModeResult.map { it.amount })
     }
 }

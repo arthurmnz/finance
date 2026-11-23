@@ -1,7 +1,7 @@
 package com.finance.application.use_case.transaction
 
 import com.finance.application.service.AccountAccessService
-import com.finance.domain.entity.CreditCardInvoiceEntity
+import com.finance.application.service.InvoicePaymentTransactionResolver
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
@@ -39,10 +39,27 @@ class DeleteTransactionUseCase(
         val transactionsToDelete = mutableListOf(transaction)
 
         if (deleteAllFuture && transaction.recurrenceGroupId != null) {
-            val futureTransactions = transactionRepository.findFutureTransactionsByGroupId(
-                groupId = transaction.recurrenceGroupId,
-                date = transaction.date
-            )
+            val futureTransactions = if (transaction.installmentNumber != null) {
+                transactionRepository.findFutureTransactionsInGroup(
+                    groupId = transaction.recurrenceGroupId,
+                    date = transaction.date,
+                    installmentNumber = transaction.installmentNumber
+                )
+            } else {
+                transactionRepository.findFutureTransactionsByGroupId(
+                    groupId = transaction.recurrenceGroupId,
+                    date = transaction.date
+                )
+            }
+            for (futureTx in futureTransactions) {
+                accountAccessService.requireTransactionMutationAccess(
+                    transaction = futureTx,
+                    userId = userId,
+                    accountRepository = accountRepository,
+                    creditCardRepository = creditCardRepository,
+                    unauthorizedMessage = "You can only delete transactions you created"
+                )
+            }
             transactionsToDelete.addAll(futureTransactions)
         }
 
@@ -66,7 +83,11 @@ class DeleteTransactionUseCase(
             }
 
             if (tx.status == TransactionStatus.COMPLETED) {
-                val invoice = findInvoiceForPaymentTx(tx)
+                val invoice = InvoicePaymentTransactionResolver.findInvoiceForPaymentTx(
+                    tx = tx,
+                    creditCardInvoiceRepository = creditCardInvoiceRepository,
+                    creditCardRepository = creditCardRepository
+                )
                 if (invoice != null) {
                     invoice.subtractPayment(tx.amount)
                     creditCardInvoiceRepository.save(invoice)
@@ -75,20 +96,5 @@ class DeleteTransactionUseCase(
         }
 
         transactionRepository.deleteAll(transactionsToDelete.map { it.id })
-    }
-
-    private fun findInvoiceForPaymentTx(tx: TransactionEntity): CreditCardInvoiceEntity? {
-        if (tx.creditCardInvoiceId != null) {
-            return creditCardInvoiceRepository.findById(tx.creditCardInvoiceId)
-        }
-        val regex = Regex("""^Pagamento fatura (.+?) \((\d{1,2})/(\d{4})\)$""")
-        val match = regex.find(tx.title) ?: return null
-        val (cardName, monthStr, yearStr) = match.destructured
-        val month = monthStr.toIntOrNull() ?: return null
-        val year = yearStr.toIntOrNull() ?: return null
-
-        val cards = creditCardRepository.findAllByOwnerId(tx.responsibleId)
-        val card = cards.find { it.name.equals(cardName.trim(), ignoreCase = true) } ?: return null
-        return creditCardInvoiceRepository.findByCardAndPeriod(card.id, month, year)
     }
 }

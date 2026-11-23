@@ -27,6 +27,8 @@ interface TransactionRepository {
     fun saveAll(transactions: List<TransactionEntity>): List<TransactionEntity>
     fun findLatestInfiniteTransactions(): List<TransactionEntity>
     fun findFutureTransactionsByGroupId(groupId: UUID, date: LocalDate): List<TransactionEntity>
+    fun findFutureTransactionsInGroup(groupId: UUID, date: LocalDate, installmentNumber: Int?): List<TransactionEntity>
+    fun findByRecurrenceGroupIdOrderByInstallmentNumberAscDateAsc(groupId: UUID): List<TransactionEntity>
     fun findByAccountIdInAndDateBetween(accountIds: List<UUID>, startDate: LocalDate, endDate: LocalDate): List<TransactionEntity>
     fun findByResponsibleIdAndDateBetween(responsibleId: UUID, startDate: LocalDate, endDate: LocalDate): List<TransactionEntity>
 }

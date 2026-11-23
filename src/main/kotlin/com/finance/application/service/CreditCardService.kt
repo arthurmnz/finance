@@ -313,23 +313,32 @@ class CreditCardService(
 
         val allPayments = (directPayments + legacyPayments).distinctBy { it.id }
 
-        val completedPaymentsTotal = allPayments.filter { it.status == TransactionStatus.COMPLETED }.sumOf { it.amount }
-        val effectivePaid = if (invoiceEntity != null) {
+        val completedPaymentsTotalLong = allPayments
+            .filter { it.status == TransactionStatus.COMPLETED }
+            .sumOf { it.amount.toLong() }
+        val completedPaymentsTotal = completedPaymentsTotalLong.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+        val paidLong = if (invoiceEntity != null) {
             if (invoiceEntity.paidAmount != completedPaymentsTotal) {
                 invoiceEntity.setPaidAmount(completedPaymentsTotal)
                 invoiceEntity = invoiceRepository.save(invoiceEntity)
             }
-            invoiceEntity.paidAmount
+            invoiceEntity.paidAmount.toLong()
         } else {
-            completedPaymentsTotal
+            completedPaymentsTotalLong
         }
 
-        val purchasesAmount = txs.sumOf { if (it.type == TransactionType.INCOME) -it.amount else it.amount }.coerceAtLeast(0)
+        val purchasesAmountLong = txs
+            .sumOf { (if (it.type == TransactionType.INCOME) -it.amount else it.amount).toLong() }
+            .coerceAtLeast(0L)
         val carriedOver = invoiceEntity?.carriedOverAmount ?: 0
         val revolving = invoiceEntity?.revolvingInterestAmount ?: 0
-        val paid = effectivePaid
-        val total = purchasesAmount + carriedOver + revolving
-        val remaining = (total - paid).coerceAtLeast(0)
+        val totalLong = purchasesAmountLong + carriedOver.toLong() + revolving.toLong()
+        val remainingLong = (totalLong - paidLong).coerceAtLeast(0L)
+
+        val purchasesAmount = purchasesAmountLong.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+        val paid = paidLong.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+        val total = totalLong.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+        val remaining = remainingLong.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
 
         val ym = YearMonth.of(year, month)
         val dueDate = LocalDate.of(year, month, card.dueDay.coerceAtMost(ym.lengthOfMonth()))
@@ -337,15 +346,18 @@ class CreditCardService(
 
         val today = LocalDate.now()
         val status = when {
-            total > 0 && remaining == 0 -> "PAID"
-            paid > 0 && remaining > 0 -> "PARTIALLY_PAID"
+            totalLong > 0L && remainingLong == 0L -> "PAID"
+            paidLong > 0L && remainingLong > 0L -> "PARTIALLY_PAID"
             !today.isBefore(closingDate) -> "CLOSED"
             else -> "OPEN"
         }
 
         val byResponsible = txs.groupBy { it.responsibleId }.mapNotNull { (uid, list) ->
             val u = users[uid] ?: return@mapNotNull null
-            val sum = list.sumOf { if (it.type == TransactionType.INCOME) -it.amount else it.amount }
+            val sum = list
+                .sumOf { (if (it.type == TransactionType.INCOME) -it.amount else it.amount).toLong() }
+                .coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong())
+                .toInt()
             CreditCardInvoiceResponse.ResponsibleSummary(user = toUserSummary(u), amount = sum)
         }.sortedByDescending { it.amount }
 
@@ -388,15 +400,17 @@ class CreditCardService(
         // Regra 3:
         // - Compras à vista e parceladas (isInfinite == false) comprometem o limite total (todas as parcelas, atuais e futuras).
         // - Assinaturas (isInfinite == true) comprometem o limite apenas até a fatura atual (currentYm).
-        val committedPurchases = allTxs.filter { tx ->
+        val committedPurchasesLong = allTxs.filter { tx ->
             if (!tx.isInfinite) true
             else effectiveInvoicePeriod(card, tx) <= currentYm
-        }.sumOf { if (it.type == TransactionType.INCOME) -it.amount else it.amount }
+        }.sumOf { (if (it.type == TransactionType.INCOME) -it.amount else it.amount).toLong() }
 
-        val totalRevolvingInterest = allInvoices.sumOf { it.revolvingInterestAmount }
-        val totalPaid = allInvoices.sumOf { it.paidAmount }
-        val usedLimit = (committedPurchases + totalRevolvingInterest - totalPaid).coerceAtLeast(0)
-        val availableLimit = (card.limitAmount - usedLimit).coerceAtLeast(0)
+        val totalRevolvingInterestLong = allInvoices.sumOf { it.revolvingInterestAmount.toLong() }
+        val totalPaidLong = allInvoices.sumOf { it.paidAmount.toLong() }
+        val usedLimitLong = (committedPurchasesLong + totalRevolvingInterestLong - totalPaidLong).coerceAtLeast(0L)
+        val availableLimitLong = (card.limitAmount.toLong() - usedLimitLong).coerceAtLeast(0L)
+        val usedLimit = usedLimitLong.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val availableLimit = availableLimitLong.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
         val currentInvoiceView = buildInvoiceResponse(card, currentYm.monthValue, currentYm.year, users)
 

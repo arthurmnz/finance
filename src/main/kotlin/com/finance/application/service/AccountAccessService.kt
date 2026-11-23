@@ -1,6 +1,7 @@
 package com.finance.application.service
 
 import com.finance.domain.entity.AccountEntity
+import com.finance.domain.entity.CreditCardEntity
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccessDeniedException
@@ -75,6 +76,32 @@ class AccountAccessService(
         }
     }
 
+    fun hasCardAccess(card: CreditCardEntity, userId: UUID): Boolean =
+        card.ownerId == userId ||
+            (card.groupId != null && groupMemberRepository.existsByGroupIdAndUserId(card.groupId!!, userId))
+
+    /**
+     * Valida permissão atual de leitura para uma transação (conta ou cartão).
+     */
+    fun requireTransactionReadAccess(
+        transaction: TransactionEntity,
+        userId: UUID,
+        accountRepository: AccountRepository,
+        creditCardRepository: CreditCardRepository
+    ) {
+        val cardId = transaction.creditCardId
+        if (cardId != null) {
+            val card = creditCardRepository.findById(cardId) ?: throw CreditCardNotFoundException()
+            if (!hasCardAccess(card, userId)) {
+                throw AccessDeniedException("Você não tem acesso a este cartão de crédito.")
+            }
+            return
+        }
+        val account = accountRepository.findById(transaction.accountId)
+            ?: throw AccountNotFoundException("Account not found")
+        requireAccess(account, userId, "Você não tem permissão para acessar as transações desta conta.")
+    }
+
     /**
      * Valida permissão atual para editar, excluir ou alternar status de uma transação.
      * - Cartão: exige autoria da transação, existência do cartão e acesso atual (titular ou membro do grupo).
@@ -95,9 +122,7 @@ class AccountAccessService(
                 throw UnauthorizedException(unauthorizedMessage)
             }
             val card = creditCardRepository.findById(cardId) ?: throw CreditCardNotFoundException()
-            val hasCardAccess = card.ownerId == userId ||
-                (card.groupId != null && groupMemberRepository.existsByGroupIdAndUserId(card.groupId!!, userId))
-            if (!hasCardAccess) {
+            if (!hasCardAccess(card, userId)) {
                 throw AccessDeniedException("Você não tem acesso a este cartão de crédito.")
             }
             return

@@ -132,6 +132,28 @@ class TransactionRepositoryImpl(
             .map { mapper.toDomain(it) }
     }
 
+    override fun findFutureTransactionsInGroup(
+        groupId: UUID,
+        date: LocalDate,
+        installmentNumber: Int?
+    ): List<TransactionEntity> {
+        val entities = if (installmentNumber != null) {
+            springDataTransactionRepository.findFutureTransactionsInGroupAfterInstallment(
+                groupId = groupId,
+                date = date,
+                installmentNumber = installmentNumber
+            )
+        } else {
+            springDataTransactionRepository.findFutureTransactionsByGroupId(groupId, date)
+        }
+        return entities.map { mapper.toDomain(it) }
+    }
+
+    override fun findByRecurrenceGroupIdOrderByInstallmentNumberAscDateAsc(groupId: UUID): List<TransactionEntity> {
+        return springDataTransactionRepository.findByRecurrenceGroupIdOrderByInstallmentNumberAscDateAsc(groupId)
+            .map { mapper.toDomain(it) }
+    }
+
     override fun findByAccountIdInAndDateBetween(
         accountIds: List<UUID>,
         startDate: LocalDate,

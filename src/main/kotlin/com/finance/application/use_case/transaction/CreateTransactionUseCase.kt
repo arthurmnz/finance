@@ -21,6 +21,7 @@ import com.finance.domain.repository.CategoryRepository
 import com.finance.domain.repository.GroupMemberRepository
 import com.finance.domain.repository.TransactionRepository
 import com.finance.domain.repository.UserRepository
+import com.finance.domain.service.InstallmentAmountAllocator
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.YearMonth
@@ -42,6 +43,13 @@ class CreateTransactionUseCase(
             throw InvalidTransactionException("O valor da transação deve ser maior que zero.")
         }
 
+        val normalizedMode = (request.installmentAmountMode ?: "INSTALLMENT").uppercase()
+        if (normalizedMode !in VALID_INSTALLMENT_AMOUNT_MODES) {
+            throw InvalidTransactionException(
+                "Modo de valor de parcela inválido. Valores permitidos: TOTAL, INSTALLMENT, CUSTOM."
+            )
+        }
+
         TransactionInputValidator.validateRecurrenceLimits(
             recurrenceInstallments = request.recurrenceInstallments,
             recurrenceInterval = request.recurrenceInterval
@@ -50,6 +58,62 @@ class CreateTransactionUseCase(
             invoiceMonth = request.invoiceMonth,
             invoiceYear = request.invoiceYear
         )
+
+        var installments = if (request.isRecurring) request.recurrenceInstallments else 1
+        val isFixedInstallmentPlan = request.isRecurring && !request.isInfinite && installments > 1
+
+        if (request.isRecurring && request.isInfinite) {
+            installments = when (request.recurrenceFrequency) {
+                RecurrenceFrequency.DAILY -> 365
+                RecurrenceFrequency.WEEKLY -> 48
+                RecurrenceFrequency.MONTHLY -> 12
+                RecurrenceFrequency.YEARLY -> 1
+                else -> 0
+            }
+        }
+
+        val rawSplits = request.splits?.takeIf { it.isNotEmpty() }
+
+        val customAmounts: List<Int>? = if (request.installmentAmounts != null || normalizedMode == "CUSTOM") {
+            if (!isFixedInstallmentPlan) {
+                throw InvalidTransactionException(
+                    "Parcelas personalizadas exigem um parcelamento fixo (isRecurring = true, isInfinite = false e mais de 1 parcela)."
+                )
+            }
+            if (rawSplits != null) {
+                throw InvalidTransactionException(
+                    "Parcelas personalizadas não podem ser usadas simultaneamente com rateio entre múltiplas contas."
+                )
+            }
+            val amounts = request.installmentAmounts
+                ?: throw InvalidTransactionException(
+                    "A lista de valores das parcelas (installmentAmounts) é obrigatória no modo CUSTOM."
+                )
+            if (amounts.size != installments) {
+                throw InvalidTransactionException(
+                    "A quantidade de valores informados (${amounts.size}) deve ser igual ao número de parcelas ($installments)."
+                )
+            }
+            if (amounts.any { it <= 0 }) {
+                throw InvalidTransactionException("Todos os valores das parcelas devem ser maiores que zero.")
+            }
+            val sum = amounts.sumOf { it.toLong() }
+            if (sum > Int.MAX_VALUE || sum != request.amount.toLong()) {
+                throw InvalidTransactionException(
+                    "A soma das parcelas ($sum) deve ser igual ao valor total informado (${request.amount})."
+                )
+            }
+            amounts
+        } else {
+            if (normalizedMode == "INSTALLMENT" && request.amount.toLong() * installments > Int.MAX_VALUE) {
+                throw InvalidTransactionException("O valor total do parcelamento excede o limite máximo permitido.")
+            }
+            if (isFixedInstallmentPlan && normalizedMode == "TOTAL" && rawSplits == null) {
+                // Valida antecipadamente se o valor total permite ao menos 1 centavo por parcela
+                InstallmentAmountAllocator.allocate(request.amount, installments, request.remainderStrategy)
+            }
+            null
+        }
 
         val resolvedCategories = TransactionCategoryValidator.validateSelection(
             categoryRepository = categoryRepository,
@@ -67,7 +131,6 @@ class CreateTransactionUseCase(
             throw InvalidTransactionException("Apenas transferências bancárias podem gerar saldo devedor.")
         }
 
-        val rawSplits = request.splits?.takeIf { it.isNotEmpty() }
         if (rawSplits != null) {
             if (creditCard != null) {
                 throw InvalidTransactionException("Compras no cartão de crédito não suportam divisão entre múltiplas contas bancárias.")
@@ -92,6 +155,20 @@ class CreateTransactionUseCase(
                 amount = request.amount
             )
         )
+
+        val divideTotal = customAmounts == null && isFixedInstallmentPlan && normalizedMode == "TOTAL"
+        val splitInstallmentAmountsList: List<List<Int>> = effectiveSplits.map { split ->
+            when {
+                customAmounts != null -> customAmounts
+                divideTotal -> InstallmentAmountAllocator.allocate(split.amount, installments, request.remainderStrategy)
+                else -> {
+                    if (normalizedMode == "INSTALLMENT" && split.amount.toLong() * installments > Int.MAX_VALUE) {
+                        throw InvalidTransactionException("O valor total do parcelamento excede o limite máximo permitido.")
+                    }
+                    List(installments) { split.amount }
+                }
+            }
+        }
 
         val accountsById = mutableMapOf<UUID, AccountEntity>()
         if (creditCard == null) {
@@ -167,22 +244,6 @@ class CreateTransactionUseCase(
             TransactionCategoryValidator.validateGroupScope(resolvedCategories, involvedGroupIds)
         }
 
-        var installments = if (request.isRecurring) request.recurrenceInstallments else 1
-        val isFixedInstallmentPlan = request.isRecurring && !request.isInfinite && installments > 1
-
-        if (request.isRecurring && request.isInfinite) {
-            installments = 1
-            installments = when (request.recurrenceFrequency) {
-                RecurrenceFrequency.DAILY -> installments * 365
-                RecurrenceFrequency.WEEKLY -> installments * 48
-                RecurrenceFrequency.MONTHLY -> installments * 12
-                RecurrenceFrequency.YEARLY -> installments
-                else -> 0
-            }
-        }
-
-        val divideTotal = isFixedInstallmentPlan && request.installmentAmountMode?.uppercase() == "TOTAL"
-
         val baseInvoiceYm: YearMonth? = if (creditCard != null) {
             if (request.invoiceMonth != null && request.invoiceYear != null) {
                 YearMonth.of(request.invoiceYear, request.invoiceMonth)
@@ -193,16 +254,15 @@ class CreateTransactionUseCase(
 
         val transactionsToSave = mutableListOf<TransactionEntity>()
 
-        for (split in effectiveSplits) {
+        for ((splitIndex, split) in effectiveSplits.withIndex()) {
             val recurrenceGroupId = if (request.isRecurring) UUID.randomUUID() else null
             var currentDate = request.date
-            val baseInstallmentAmount = if (divideTotal) split.amount / installments else split.amount
-            val remainder = if (divideTotal) split.amount % installments else 0
+            val splitAmounts = splitInstallmentAmountsList[splitIndex]
             val splitAccount = accountsById[split.accountId]
             val itemResponsibleId = if (effectiveSplits.size > 1 && splitAccount != null) (splitAccount.ownerId ?: userId) else userId
 
             for (i in 0 until installments) {
-                val itemAmount = if (divideTotal && i == 0) baseInstallmentAmount + remainder else baseInstallmentAmount
+                val itemAmount = splitAmounts[i]
                 val itemInvoiceYm = if (creditCard != null && baseInvoiceYm != null) {
                     creditCard.installmentInvoiceMonthYear(
                         baseInvoiceYm = baseInvoiceYm,
@@ -293,5 +353,9 @@ class CreateTransactionUseCase(
                 generalCategoryEntity = resolvedCategories.generalCategory
             )
         }
+    }
+
+    companion object {
+        private val VALID_INSTALLMENT_AMOUNT_MODES = setOf("TOTAL", "INSTALLMENT", "CUSTOM")
     }
 }

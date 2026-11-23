@@ -1,6 +1,7 @@
 package com.finance.domain.entity
 
 import com.finance.domain.enum.AccountType
+import com.finance.domain.exception.InvalidTransactionException
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.util.UUID
@@ -182,5 +183,34 @@ class AccountEntityTest {
         assertThrows<IllegalArgumentException> {
             personal.update(newName = longName, newStartBalance = 0, newType = AccountType.CHECKING, newTax = null)
         }
+    }
+
+    @Test
+    fun `addBalance and subtractBalance should throw InvalidTransactionException on Int overflow or underflow`() {
+        val account = AccountEntity(
+            ownerId = UUID.randomUUID(),
+            name = "Conta Overflow",
+            startBalance = Int.MAX_VALUE - 100,
+            type = AccountType.CHECKING,
+            tax = null
+        )
+
+        assertThrows<InvalidTransactionException> {
+            account.addBalance(101)
+        }
+        assertEquals(Int.MAX_VALUE - 100, account.balance)
+
+        val negativeAccount = AccountEntity(
+            ownerId = UUID.randomUUID(),
+            name = "Conta Underflow",
+            startBalance = Int.MIN_VALUE + 100,
+            type = AccountType.CHECKING,
+            tax = null
+        )
+
+        assertThrows<InvalidTransactionException> {
+            negativeAccount.subtractBalance(101)
+        }
+        assertEquals(Int.MIN_VALUE + 100, negativeAccount.balance)
     }
 }

@@ -10,6 +10,7 @@ import com.finance.domain.entity.UserEntity
 import com.finance.domain.enum.AccountType
 import com.finance.domain.enum.CategoryLevel
 import com.finance.domain.enum.CategoryType
+import com.finance.domain.enum.InstallmentRemainderStrategy
 import com.finance.domain.enum.RecurrenceFrequency
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
@@ -1323,5 +1324,447 @@ class UpdateTransactionUseCaseTest {
                 )
             )
         }
+    }
+
+    @Test
+    fun `should preserve unequal future amounts when updateFutureAmounts is false and propagate when true`() {
+        val user = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val card = CreditCardEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            accountId = UUID.randomUUID(),
+            name = "Nubank",
+            limitAmount = 500000,
+            closingDay = 10,
+            dueDay = 17
+        )
+        val groupId = UUID.randomUUID()
+        val p1 = TransactionEntity(
+            title = "Compra 4x",
+            amount = 5000,
+            date = LocalDate.of(2026, 11, 5),
+            responsibleId = user.id,
+            accountId = card.accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = groupId,
+            recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+            recurrenceInterval = 1,
+            isInfinite = false,
+            creditCardId = card.id,
+            invoiceMonth = 11,
+            invoiceYear = 2026,
+            installmentNumber = 1,
+            totalInstallments = 4
+        )
+        val p2 = TransactionEntity(
+            title = "Compra 4x",
+            amount = 4998,
+            date = LocalDate.of(2026, 11, 10),
+            responsibleId = user.id,
+            accountId = card.accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = groupId,
+            recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+            recurrenceInterval = 1,
+            isInfinite = false,
+            creditCardId = card.id,
+            invoiceMonth = 12,
+            invoiceYear = 2026,
+            installmentNumber = 2,
+            totalInstallments = 4
+        )
+        val p3 = TransactionEntity(
+            title = "Compra 4x",
+            amount = 4998,
+            date = LocalDate.of(2026, 12, 10),
+            responsibleId = user.id,
+            accountId = card.accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = groupId,
+            recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+            recurrenceInterval = 1,
+            isInfinite = false,
+            creditCardId = card.id,
+            invoiceMonth = 1,
+            invoiceYear = 2027,
+            installmentNumber = 3,
+            totalInstallments = 4
+        )
+        val p4 = TransactionEntity(
+            title = "Compra 4x",
+            amount = 4998,
+            date = LocalDate.of(2027, 1, 10),
+            responsibleId = user.id,
+            accountId = card.accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = groupId,
+            recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+            recurrenceInterval = 1,
+            isInfinite = false,
+            creditCardId = card.id,
+            invoiceMonth = 2,
+            invoiceYear = 2027,
+            installmentNumber = 4,
+            totalInstallments = 4
+        )
+
+        `when`(transactionRepository.findById(p1.id)).thenReturn(p1)
+        `when`(transactionRepository.findFutureTransactionsInGroup(groupId, p1.date, 1))
+            .thenReturn(listOf(p2, p3, p4))
+        `when`(creditCardRepository.findById(card.id)).thenReturn(card)
+        `when`(userRepository.findById(user.id)).thenReturn(user)
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        // 1. updateAllFuture = true e updateFutureAmounts = false -> 2/4..4/4 preservam 4998
+        val updated1 = useCase.execute(
+            user.id,
+            p1.id,
+            UpdateTransactionRequest(
+                title = "Compra 4x Renomeada",
+                amount = 5200,
+                date = p1.date,
+                status = TransactionStatus.COMPLETED,
+                updateAllFuture = true,
+                updateFutureAmounts = false
+            )
+        )
+        assertEquals(5200, updated1.amount)
+        assertEquals("Compra 4x Renomeada", p2.title)
+        assertEquals(listOf(5200, 4998, 4998, 4998), listOf(p1.amount, p2.amount, p3.amount, p4.amount))
+
+        // 2. Fallback legado (updateFutureAmounts = null) mantendo o mesmo valor de p1 -> preserva 4998
+        useCase.execute(
+            user.id,
+            p1.id,
+            UpdateTransactionRequest(
+                title = "Compra 4x Titulo 2",
+                amount = 5200,
+                date = p1.date,
+                status = TransactionStatus.COMPLETED,
+                updateAllFuture = true,
+                updateFutureAmounts = null
+            )
+        )
+        assertEquals(listOf(5200, 4998, 4998, 4998), listOf(p1.amount, p2.amount, p3.amount, p4.amount))
+
+        // 3. updateFutureAmounts = true propaga novo valor para todas futuras
+        useCase.execute(
+            user.id,
+            p1.id,
+            UpdateTransactionRequest(
+                title = "Compra 4x Uniforme",
+                amount = 6000,
+                date = p1.date,
+                status = TransactionStatus.COMPLETED,
+                updateAllFuture = true,
+                updateFutureAmounts = true
+            )
+        )
+        assertEquals(listOf(6000, 6000, 6000, 6000), listOf(p1.amount, p2.amount, p3.amount, p4.amount))
+    }
+
+    @Test
+    fun `should use targetAmount per item when updating bank account balances and handle same-date future installments`() {
+        val user = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val acc = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            name = "Conta Corrente",
+            startBalance = 100000,
+            balance = 90000, // 5000 (b1) + 5000 (b2) debitados
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = null
+        )
+        val bankGroupId = UUID.randomUUID()
+        val sameDate = LocalDate.of(2026, 11, 10)
+        val b1 = TransactionEntity(
+            title = "Parcela Banco",
+            amount = 5002,
+            date = sameDate,
+            responsibleId = user.id,
+            accountId = acc.id,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = bankGroupId,
+            recurrenceFrequency = RecurrenceFrequency.WEEKLY,
+            recurrenceInterval = 1,
+            installmentNumber = 1,
+            totalInstallments = 2
+        )
+        val b2 = TransactionEntity(
+            title = "Parcela Banco",
+            amount = 4998,
+            date = sameDate, // mesma data (ex.: mesma invoiceOpeningDate)
+            responsibleId = user.id,
+            accountId = acc.id,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = bankGroupId,
+            recurrenceFrequency = RecurrenceFrequency.WEEKLY,
+            recurrenceInterval = 1,
+            installmentNumber = 2,
+            totalInstallments = 2
+        )
+
+        `when`(transactionRepository.findById(b1.id)).thenReturn(b1)
+        `when`(transactionRepository.findFutureTransactionsInGroup(bankGroupId, sameDate, 1)).thenReturn(listOf(b2))
+        `when`(accountRepository.findById(acc.id)).thenReturn(acc)
+        `when`(userRepository.findById(user.id)).thenReturn(user)
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        // Altera b1 de 5002 para 6002, preservando b2 em 4998 -> saldo deve cair apenas 1000 (90000 -> 89000)
+        useCase.execute(
+            user.id,
+            b1.id,
+            UpdateTransactionRequest(
+                title = "Parcela Banco Editada",
+                amount = 6002,
+                date = sameDate,
+                status = TransactionStatus.COMPLETED,
+                updateAllFuture = true,
+                updateFutureAmounts = false
+            )
+        )
+        assertEquals(6002, b1.amount)
+        assertEquals(4998, b2.amount)
+        assertEquals(89000, acc.balance)
+        verify(transactionRepository).findFutureTransactionsInGroup(bankGroupId, sameDate, 1)
+
+        // Fallback legado em assinatura infinita: updateFutureAmounts = null deve propagar mesmo com valor igual
+        val infGroupId = UUID.randomUUID()
+        val inf1 = TransactionEntity(
+            title = "Streaming",
+            amount = 3000,
+            date = LocalDate.of(2026, 11, 5),
+            responsibleId = user.id,
+            accountId = acc.id,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = infGroupId,
+            isInfinite = true
+        )
+        val inf2 = TransactionEntity(
+            title = "Streaming",
+            amount = 2500,
+            date = LocalDate.of(2026, 12, 5),
+            responsibleId = user.id,
+            accountId = acc.id,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.PENDING,
+            recurrenceGroupId = infGroupId,
+            isInfinite = true
+        )
+        `when`(transactionRepository.findById(inf1.id)).thenReturn(inf1)
+        `when`(transactionRepository.findFutureTransactionsByGroupId(infGroupId, inf1.date)).thenReturn(listOf(inf2))
+
+        useCase.execute(
+            user.id,
+            inf1.id,
+            UpdateTransactionRequest(
+                title = "Streaming Novo",
+                amount = 3000,
+                date = inf1.date,
+                status = TransactionStatus.COMPLETED,
+                updateAllFuture = true,
+                updateFutureAmounts = null
+            )
+        )
+        assertEquals(3000, inf2.amount)
+    }
+
+    @Test
+    fun `should allocate amounts with InstallmentAmountAllocator when regenerating futures in TOTAL mode`() {
+        val user = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val card = CreditCardEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            accountId = UUID.randomUUID(),
+            name = "Nubank",
+            limitAmount = 500000,
+            closingDay = 10,
+            dueDay = 17
+        )
+        val groupId = UUID.randomUUID()
+        val tx = TransactionEntity(
+            title = "Compra",
+            amount = 10000,
+            date = LocalDate.of(2026, 11, 5),
+            responsibleId = user.id,
+            accountId = card.accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = groupId,
+            recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+            recurrenceInterval = 1,
+            isInfinite = false,
+            creditCardId = card.id,
+            invoiceMonth = 11,
+            invoiceYear = 2026,
+            installmentNumber = 1,
+            totalInstallments = 2
+        )
+
+        val savedBatches = mutableListOf<List<TransactionEntity>>()
+        `when`(transactionRepository.findById(tx.id)).thenReturn(tx)
+        `when`(transactionRepository.findFutureTransactionsInGroup(groupId, tx.date, 1)).thenReturn(emptyList())
+        `when`(creditCardRepository.findById(card.id)).thenReturn(card)
+        `when`(userRepository.findById(user.id)).thenReturn(user)
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer {
+            val list = it.getArgument<List<TransactionEntity>>(0)
+            savedBatches.add(list)
+            list
+        }
+
+        useCase.execute(
+            user.id,
+            tx.id,
+            UpdateTransactionRequest(
+                title = "Compra 4x TOTAL",
+                amount = 19994,
+                date = LocalDate.of(2026, 11, 5),
+                status = TransactionStatus.COMPLETED,
+                updateAllFuture = true,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInterval = 1,
+                recurrenceInstallments = 3, // 1 atual + 3 futuras = 4 parcelas
+                isInfinite = false,
+                installmentAmountMode = "TOTAL",
+                remainderStrategy = InstallmentRemainderStrategy.FIRST_INSTALLMENT
+            )
+        )
+
+        assertEquals(2, savedBatches.size)
+        assertEquals(5000, savedBatches[0][0].amount)
+        assertEquals(listOf(4998, 4998, 4998), savedBatches[1].map { it.amount })
+    }
+
+    @Test
+    fun `should reject in-place future propagation overflow and enforce mutation access on future transactions`() {
+        val owner = UserEntity(Name("Owner"), Name("User"), Email("owner@finance.com"), PasswordHash("hash"))
+        val otherUser = UserEntity(Name("Other"), Name("User"), Email("other@finance.com"), PasswordHash("hash"))
+        val groupId = UUID.randomUUID()
+        val card = CreditCardEntity(
+            id = UUID.randomUUID(),
+            ownerId = owner.id,
+            accountId = UUID.randomUUID(),
+            name = "Roxinho",
+            limitAmount = 500000,
+            closingDay = 10,
+            dueDay = 17
+        )
+        val p1 = TransactionEntity(
+            title = "Compra Alta",
+            amount = 500_000_000,
+            date = LocalDate.of(2026, 11, 5),
+            responsibleId = owner.id,
+            accountId = card.accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = groupId,
+            recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+            recurrenceInterval = 1,
+            creditCardId = card.id,
+            installmentNumber = 1,
+            totalInstallments = 2
+        )
+        val p2 = TransactionEntity(
+            title = "Compra Alta",
+            amount = 500_000_000,
+            date = LocalDate.of(2026, 12, 5),
+            responsibleId = owner.id,
+            accountId = card.accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = groupId,
+            recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+            recurrenceInterval = 1,
+            creditCardId = card.id,
+            installmentNumber = 2,
+            totalInstallments = 2
+        )
+
+        `when`(transactionRepository.findById(p1.id)).thenReturn(p1)
+        `when`(transactionRepository.findFutureTransactionsInGroup(groupId, p1.date, 1)).thenReturn(listOf(p2))
+        `when`(creditCardRepository.findById(card.id)).thenReturn(card)
+
+        // Propagar 1_500_000_000 para 2 parcelas => 3_000_000_000 > Int.MAX_VALUE -> InvalidTransactionException
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                owner.id,
+                p1.id,
+                UpdateTransactionRequest(
+                    title = "Overflow",
+                    amount = 1_500_000_000,
+                    date = p1.date,
+                    status = TransactionStatus.COMPLETED,
+                    updateAllFuture = true,
+                    updateFutureAmounts = true
+                )
+            )
+        }
+        verify(transactionRepository, never()).saveAll(anyNonNull())
+
+        // Defesa em profundidade: se parcela futura tiver responsibleId diferente (sem acesso de mutação), bloqueia
+        val mixedFuture = TransactionEntity(
+            title = "Futura Alheia",
+            amount = 5000,
+            date = LocalDate.of(2026, 12, 5),
+            responsibleId = otherUser.id,
+            accountId = card.accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = groupId,
+            creditCardId = card.id,
+            installmentNumber = 2,
+            totalInstallments = 2
+        )
+        `when`(transactionRepository.findFutureTransactionsInGroup(groupId, p1.date, 1))
+            .thenReturn(listOf(mixedFuture))
+
+        assertThrows<com.finance.domain.exception.UnauthorizedException> {
+            useCase.execute(
+                owner.id,
+                p1.id,
+                UpdateTransactionRequest(
+                    title = "Tentativa edição",
+                    amount = 5000,
+                    date = p1.date,
+                    status = TransactionStatus.COMPLETED,
+                    updateAllFuture = true,
+                    updateFutureAmounts = false
+                )
+            )
+        }
+        verify(transactionRepository, never()).saveAll(anyNonNull())
     }
 }

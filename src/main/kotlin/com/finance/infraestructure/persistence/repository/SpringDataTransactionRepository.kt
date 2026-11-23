@@ -67,6 +67,22 @@ interface SpringDataTransactionRepository : JpaRepository<TransactionJpaEntity, 
     """)
     fun findFutureTransactionsByGroupId(groupId: UUID, date: LocalDate): List<TransactionJpaEntity>
 
+    @Query("""
+        SELECT t FROM TransactionJpaEntity t
+        WHERE t.recurrenceGroupId = :groupId
+        AND (
+            (t.installmentNumber IS NOT NULL AND t.installmentNumber > :installmentNumber)
+            OR (t.installmentNumber IS NULL AND t.date > :date)
+        )
+    """)
+    fun findFutureTransactionsInGroupAfterInstallment(
+        @Param("groupId") groupId: UUID,
+        @Param("date") date: LocalDate,
+        @Param("installmentNumber") installmentNumber: Int
+    ): List<TransactionJpaEntity>
+
+    fun findByRecurrenceGroupIdOrderByInstallmentNumberAscDateAsc(groupId: UUID): List<TransactionJpaEntity>
+
     fun findByAccountIdInAndDateBetween(accountIds: List<UUID>, startDate: LocalDate, endDate: LocalDate): List<TransactionJpaEntity>
     fun findByResponsibleIdAndDateBetween(responsibleId: UUID, startDate: LocalDate, endDate: LocalDate): List<TransactionJpaEntity>
 }

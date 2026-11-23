@@ -2,13 +2,16 @@ package com.finance.presentation.controller
 
 import com.finance.application.dto.transaction.CreateTransactionRequest
 import com.finance.application.dto.transaction.TransactionResponse
+import com.finance.application.dto.transaction.UpdateInstallmentGroupAmountsRequest
 import com.finance.application.dto.transaction.UpdateTransactionRequest
 import com.finance.application.use_case.transaction.CreateTransactionUseCase
 import com.finance.application.use_case.transaction.DeleteTransactionUseCase
 import com.finance.application.use_case.transaction.ListAccountTransactionsUseCase
 import com.finance.application.use_case.transaction.ListCardTransactionsUseCase
 import com.finance.application.use_case.transaction.ListCategoryTransactionsUseCase
+import com.finance.application.use_case.transaction.ListInstallmentGroupUseCase
 import com.finance.application.use_case.transaction.ListResponsibleTransactionsUseCase
+import com.finance.application.use_case.transaction.UpdateInstallmentGroupAmountsUseCase
 import com.finance.application.use_case.transaction.UpdateTransactionUseCase
 import com.finance.application.use_case.transaction.ToggleTransactionStatusUseCase
 import com.finance.domain.entity.UserEntity
@@ -39,7 +42,9 @@ class TransactionController(
     private val listCategoryTransactionsUseCase: ListCategoryTransactionsUseCase,
     private val toggleTransactionStatusUseCase: ToggleTransactionStatusUseCase,
     private val listResponsibleTransactionsUseCase: ListResponsibleTransactionsUseCase,
-    private val listCardTransactionsUseCase: ListCardTransactionsUseCase
+    private val listCardTransactionsUseCase: ListCardTransactionsUseCase,
+    private val listInstallmentGroupUseCase: ListInstallmentGroupUseCase,
+    private val updateInstallmentGroupAmountsUseCase: UpdateInstallmentGroupAmountsUseCase
 ) {
 
     @PostMapping
@@ -118,6 +123,27 @@ class TransactionController(
         @AuthenticationPrincipal authenticatedUser: UserEntity
     ): ResponseEntity<List<TransactionResponse>> {
         val response = listCardTransactionsUseCase.execute(cardId, month, year, authenticatedUser.id)
+        return ResponseEntity.ok(response)
+    }
+
+    @GetMapping("/group/{recurrenceGroupId}")
+    @Operation(summary = "Listar transações de um grupo de parcelamento/recorrência")
+    fun listInstallmentGroup(
+        @PathVariable recurrenceGroupId: UUID,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<List<TransactionResponse>> {
+        val response = listInstallmentGroupUseCase.execute(recurrenceGroupId, authenticatedUser.id)
+        return ResponseEntity.ok(response)
+    }
+
+    @PutMapping("/group/{recurrenceGroupId}/installments")
+    @Operation(summary = "Atualizar valores individuais das parcelas de um grupo")
+    fun updateInstallmentGroupAmounts(
+        @PathVariable recurrenceGroupId: UUID,
+        @RequestBody request: UpdateInstallmentGroupAmountsRequest,
+        @AuthenticationPrincipal authenticatedUser: UserEntity
+    ): ResponseEntity<List<TransactionResponse>> {
+        val response = updateInstallmentGroupAmountsUseCase.execute(authenticatedUser.id, recurrenceGroupId, request)
         return ResponseEntity.ok(response)
     }
 

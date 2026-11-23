@@ -7,6 +7,7 @@ import com.finance.application.dto.credit_card.UpdateInvoiceRevolvingRequest
 import com.finance.application.dto.transaction.UpdateTransactionRequest
 import com.finance.domain.exception.AccessDeniedException
 import com.finance.domain.exception.InvalidTransactionException
+import com.finance.domain.exception.UnauthorizedException
 import org.junit.jupiter.api.assertThrows
 import com.finance.application.use_case.transaction.DeleteTransactionUseCase
 import com.finance.application.use_case.transaction.ToggleTransactionStatusUseCase
@@ -20,6 +21,7 @@ import com.finance.domain.value_object.Email
 import com.finance.domain.value_object.Name
 import com.finance.domain.value_object.PasswordHash
 import com.finance.domain.enum.AccountType
+import com.finance.domain.enum.RecurrenceFrequency
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.repository.AccountRepository
@@ -502,6 +504,237 @@ class CreditCardInvoicePaymentSyncTest {
                 UpdateInvoiceRevolvingRequest(revolvingInterestAmount = 100),
                 userId
             )
+        }
+    }
+
+    @Test
+    fun `should compute usedLimit 19994 and individual invoice totals 5000, 4998, 4998, 4998 for 4x installment purchase`() {
+        val card = CreditCardEntity(
+            id = cardId,
+            ownerId = userId,
+            accountId = accountId,
+            name = "Roxinho",
+            limitAmount = 500000,
+            closingDay = 10,
+            dueDay = 17
+        )
+        val user = UserEntity(
+            id = userId,
+            firstName = Name("Arthur"),
+            lastName = Name("Menezes"),
+            email = Email("arthur@test.com"),
+            passwordHash = PasswordHash("hash")
+        )
+        val groupId = UUID.randomUUID()
+        val p1 = TransactionEntity(
+            title = "Compra 4x",
+            amount = 5000,
+            date = LocalDate.of(2026, 11, 5),
+            responsibleId = userId,
+            accountId = accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = groupId,
+            recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+            recurrenceInterval = 1,
+            creditCardId = cardId,
+            invoiceMonth = 11,
+            invoiceYear = 2026,
+            installmentNumber = 1,
+            totalInstallments = 4
+        )
+        val p2 = TransactionEntity(
+            title = "Compra 4x",
+            amount = 4998,
+            date = LocalDate.of(2026, 11, 10),
+            responsibleId = userId,
+            accountId = accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = groupId,
+            recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+            recurrenceInterval = 1,
+            creditCardId = cardId,
+            invoiceMonth = 12,
+            invoiceYear = 2026,
+            installmentNumber = 2,
+            totalInstallments = 4
+        )
+        val p3 = TransactionEntity(
+            title = "Compra 4x",
+            amount = 4998,
+            date = LocalDate.of(2026, 12, 10),
+            responsibleId = userId,
+            accountId = accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = groupId,
+            recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+            recurrenceInterval = 1,
+            creditCardId = cardId,
+            invoiceMonth = 1,
+            invoiceYear = 2027,
+            installmentNumber = 3,
+            totalInstallments = 4
+        )
+        val p4 = TransactionEntity(
+            title = "Compra 4x",
+            amount = 4998,
+            date = LocalDate.of(2027, 1, 10),
+            responsibleId = userId,
+            accountId = accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = groupId,
+            recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+            recurrenceInterval = 1,
+            creditCardId = cardId,
+            invoiceMonth = 2,
+            invoiceYear = 2027,
+            installmentNumber = 4,
+            totalInstallments = 4
+        )
+
+        `when`(creditCardRepository.findAllByOwnerId(userId)).thenReturn(listOf(card))
+        `when`(creditCardRepository.findById(cardId)).thenReturn(card)
+        `when`(groupMemberRepository.findAllByUserId(userId)).thenReturn(emptyList())
+        `when`(creditCardRepository.findAllByGroupIdIn(emptyList())).thenReturn(emptyList())
+        `when`(transactionRepository.findByCreditCardId(cardId)).thenReturn(listOf(p1, p2, p3, p4))
+        `when`(invoiceRepository.findAllByCreditCardId(cardId)).thenReturn(emptyList())
+        `when`(transactionRepository.findByAccountId(accountId)).thenReturn(emptyList())
+        `when`(userRepository.findAll()).thenReturn(listOf(user))
+
+        val cards = creditCardService.listAccessibleCards(userId)
+        assertEquals(1, cards.size)
+        assertEquals(19994, cards[0].usedLimit)
+        assertEquals(500000 - 19994, cards[0].availableLimit)
+
+        val inv1 = creditCardService.getInvoice(cardId, 11, 2026, userId)
+        val inv2 = creditCardService.getInvoice(cardId, 12, 2026, userId)
+        val inv3 = creditCardService.getInvoice(cardId, 1, 2027, userId)
+        val inv4 = creditCardService.getInvoice(cardId, 2, 2027, userId)
+
+        assertEquals(5000, inv1.purchasesAmount)
+        assertEquals(4998, inv2.purchasesAmount)
+        assertEquals(4998, inv3.purchasesAmount)
+        assertEquals(4998, inv4.purchasesAmount)
+        assertEquals(19994, inv1.totalAmount + inv2.totalAmount + inv3.totalAmount + inv4.totalAmount)
+    }
+
+    @Test
+    fun `should prevent 32-bit Int wrap-around in CreditCardService and enforce mutation access on future deletes`() {
+        val card = CreditCardEntity(
+            id = cardId,
+            ownerId = userId,
+            accountId = accountId,
+            name = "Black",
+            limitAmount = 2_000_000_000,
+            closingDay = 10,
+            dueDay = 17
+        )
+        val user = UserEntity(
+            id = userId,
+            firstName = Name("Arthur"),
+            lastName = Name("Menezes"),
+            email = Email("arthur@test.com"),
+            passwordHash = PasswordHash("hash")
+        )
+        val bigTx1 = TransactionEntity(
+            title = "Compra 1",
+            amount = 1_500_000_000,
+            date = LocalDate.of(2026, 11, 5),
+            responsibleId = userId,
+            accountId = accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            creditCardId = cardId,
+            invoiceMonth = 11,
+            invoiceYear = 2026
+        )
+        val bigTx2 = TransactionEntity(
+            title = "Compra 2",
+            amount = 1_500_000_000,
+            date = LocalDate.of(2026, 11, 6),
+            responsibleId = userId,
+            accountId = accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            creditCardId = cardId,
+            invoiceMonth = 11,
+            invoiceYear = 2026
+        )
+
+        `when`(creditCardRepository.findAllByOwnerId(userId)).thenReturn(listOf(card))
+        `when`(creditCardRepository.findById(cardId)).thenReturn(card)
+        `when`(groupMemberRepository.findAllByUserId(userId)).thenReturn(emptyList())
+        `when`(creditCardRepository.findAllByGroupIdIn(emptyList())).thenReturn(emptyList())
+        `when`(transactionRepository.findByCreditCardId(cardId)).thenReturn(listOf(bigTx1, bigTx2))
+        `when`(invoiceRepository.findAllByCreditCardId(cardId)).thenReturn(emptyList())
+        `when`(transactionRepository.findByAccountId(accountId)).thenReturn(emptyList())
+        `when`(userRepository.findAll()).thenReturn(listOf(user))
+
+        // 1_500_000_000 + 1_500_000_000 = 3_000_000_000L (> Int.MAX_VALUE); não pode sofrer wrap-around para negativo/0
+        val cardView = creditCardService.listAccessibleCards(userId).first()
+        assertEquals(Int.MAX_VALUE, cardView.usedLimit)
+        assertEquals(0, cardView.availableLimit)
+
+        val invoiceView = creditCardService.getInvoice(cardId, 11, 2026, userId)
+        assertEquals(Int.MAX_VALUE, invoiceView.purchasesAmount)
+        assertEquals(Int.MAX_VALUE, invoiceView.totalAmount)
+        assertEquals(Int.MAX_VALUE, invoiceView.remainingAmount)
+        assertEquals("CLOSED", invoiceView.status)
+
+        // DeleteTransactionUseCase com deleteAllFuture = true deve checar permissão em cada transação futura
+        val groupId = UUID.randomUUID()
+        val otherUserId = UUID.randomUUID()
+        val ownFirst = TransactionEntity(
+            title = "Parcela 1",
+            amount = 5000,
+            date = LocalDate.of(2026, 11, 5),
+            responsibleId = userId,
+            accountId = accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = groupId,
+            creditCardId = cardId,
+            installmentNumber = 1,
+            totalInstallments = 2
+        )
+        val foreignSecond = TransactionEntity(
+            title = "Parcela 2",
+            amount = 5000,
+            date = LocalDate.of(2026, 12, 5),
+            responsibleId = otherUserId,
+            accountId = accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = groupId,
+            creditCardId = cardId,
+            installmentNumber = 2,
+            totalInstallments = 2
+        )
+        `when`(transactionRepository.findById(ownFirst.id)).thenReturn(ownFirst)
+        `when`(transactionRepository.findFutureTransactionsInGroup(groupId, ownFirst.date, 1))
+            .thenReturn(listOf(foreignSecond))
+
+        assertThrows<UnauthorizedException> {
+            deleteTransactionUseCase.execute(userId, ownFirst.id, deleteAllFuture = true)
         }
     }
 }

@@ -3,7 +3,7 @@ package com.finance.application.use_case.transaction
 import com.finance.application.dto.transaction.TransactionResponse
 import com.finance.application.mapper.TransactionDtoMapper
 import com.finance.application.service.AccountAccessService
-import com.finance.domain.entity.CreditCardInvoiceEntity
+import com.finance.application.service.InvoicePaymentTransactionResolver
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
@@ -69,7 +69,11 @@ class ToggleTransactionStatusUseCase(
             accountRepository.save(account)
         }
 
-        val invoice = findInvoiceForPaymentTx(transaction)
+        val invoice = InvoicePaymentTransactionResolver.findInvoiceForPaymentTx(
+            tx = transaction,
+            creditCardInvoiceRepository = creditCardInvoiceRepository,
+            creditCardRepository = creditCardRepository
+        )
         if (invoice != null) {
             if (newStatus == TransactionStatus.COMPLETED) {
                 invoice.addPayment(transaction.amount)
@@ -105,20 +109,5 @@ class ToggleTransactionStatusUseCase(
             parentCategory,
             generalCategory
         )
-    }
-
-    private fun findInvoiceForPaymentTx(tx: TransactionEntity): CreditCardInvoiceEntity? {
-        if (tx.creditCardInvoiceId != null) {
-            return creditCardInvoiceRepository.findById(tx.creditCardInvoiceId)
-        }
-        val regex = Regex("""^Pagamento fatura (.+?) \((\d{1,2})/(\d{4})\)$""")
-        val match = regex.find(tx.title) ?: return null
-        val (cardName, monthStr, yearStr) = match.destructured
-        val month = monthStr.toIntOrNull() ?: return null
-        val year = yearStr.toIntOrNull() ?: return null
-
-        val cards = creditCardRepository.findAllByOwnerId(tx.responsibleId)
-        val card = cards.find { it.name.equals(cardName.trim(), ignoreCase = true) } ?: return null
-        return creditCardInvoiceRepository.findByCardAndPeriod(card.id, month, year)
     }
 }

@@ -30,6 +30,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.web.HttpRequestMethodNotSupportedException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
 import org.springframework.web.servlet.NoHandlerFoundException
 import org.springframework.web.servlet.resource.NoResourceFoundException
 import java.time.DateTimeException
@@ -261,13 +262,19 @@ class GlobalExceptionHandler {
     @ExceptionHandler(
         IllegalArgumentException::class,
         HttpMessageNotReadableException::class,
+        MethodArgumentTypeMismatchException::class,
         DateTimeException::class
     )
     fun handleBadRequest(ex: Exception): ResponseEntity<ErrorResponse> {
+        val sanitizedMessage = when (ex) {
+            is HttpMessageNotReadableException -> "Corpo da requisição inválido ou malformado."
+            is MethodArgumentTypeMismatchException -> "Parâmetro da requisição inválido."
+            else -> ex.message ?: "Requisição inválida."
+        }
         val error = ErrorResponse(
             status = HttpStatus.BAD_REQUEST.value(),
             error = HttpStatus.BAD_REQUEST.reasonPhrase,
-            message = ex.message ?: "Requisição inválida."
+            message = sanitizedMessage
         )
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error)
     }
