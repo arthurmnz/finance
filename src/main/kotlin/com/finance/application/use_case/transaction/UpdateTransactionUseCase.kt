@@ -6,6 +6,7 @@ import com.finance.application.mapper.TransactionDtoMapper
 import com.finance.application.service.AccountAccessService
 import com.finance.application.service.ResolvedTransactionCategories
 import com.finance.application.service.TransactionCategoryValidator
+import com.finance.application.service.TransactionInputValidator
 import com.finance.domain.entity.CreditCardInvoiceEntity
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.enum.CategoryLevel
@@ -14,6 +15,7 @@ import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccessDeniedException
 import com.finance.domain.exception.AccountNotFoundException
+import com.finance.domain.exception.CreditCardNotFoundException
 import com.finance.domain.exception.InvalidTransactionException
 import com.finance.domain.exception.TransactionNotFoundException
 import com.finance.domain.repository.AccountRepository
@@ -26,6 +28,7 @@ import com.finance.domain.repository.UserRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDate
+import java.time.YearMonth
 import java.util.UUID
 
 @Service
@@ -45,6 +48,15 @@ class UpdateTransactionUseCase(
             throw InvalidTransactionException("O valor da transação deve ser maior que zero.")
         }
 
+        TransactionInputValidator.validateRecurrenceLimits(
+            recurrenceInstallments = request.recurrenceInstallments,
+            recurrenceInterval = request.recurrenceInterval
+        )
+        TransactionInputValidator.validateInvoicePeriod(
+            invoiceMonth = request.invoiceMonth,
+            invoiceYear = request.invoiceYear
+        )
+
         val transaction = transactionRepository.findById(transactionId)
             ?: throw TransactionNotFoundException()
 
@@ -52,6 +64,7 @@ class UpdateTransactionUseCase(
             transaction = transaction,
             userId = userId,
             accountRepository = accountRepository,
+            creditCardRepository = creditCardRepository,
             unauthorizedMessage = "You can only edit transactions you created"
         )
 
@@ -105,7 +118,8 @@ class UpdateTransactionUseCase(
                     val involvedGroupIds = buildList {
                         val cardId = transaction.creditCardId
                         if (cardId != null) {
-                            add(creditCardRepository.findById(cardId)?.groupId)
+                            val card = creditCardRepository.findById(cardId) ?: throw CreditCardNotFoundException()
+                            add(card.groupId)
                         } else {
                             add(accountRepository.findById(transaction.accountId)?.groupId)
                             if (transaction.type == TransactionType.TRANSFER) {
@@ -260,14 +274,56 @@ class UpdateTransactionUseCase(
             val interval = request.recurrenceInterval ?: transaction.recurrenceInterval ?: 1
             val isInf = request.isInfinite ?: transaction.isInfinite
             val limit = if (isInf) 12 else (request.recurrenceInstallments ?: 12)
+            TransactionInputValidator.validateRecurrenceLimits(limit, interval)
+            val card = transaction.creditCardId?.let {
+                creditCardRepository.findById(it) ?: throw CreditCardNotFoundException()
+            }
+            val baseInvoiceYm = if (!isInf && card != null) {
+                when {
+                    request.invoiceMonth != null && request.invoiceYear != null ->
+                        YearMonth.of(request.invoiceYear, request.invoiceMonth)
+                    transaction.invoiceMonth != null && transaction.invoiceYear != null -> {
+                        TransactionInputValidator.validateInvoicePeriod(
+                            transaction.invoiceMonth,
+                            transaction.invoiceYear
+                        )
+                        YearMonth.of(transaction.invoiceYear!!, transaction.invoiceMonth!!)
+                    }
+                    else ->
+                        card.defaultInvoiceMonthYear(request.date)
+                }
+            } else null
+            val baseInstallmentNumber = transaction.installmentNumber ?: 1
+            val totalInstallments = if (!isInf && card != null) baseInstallmentNumber + limit else null
 
             val newlyGenerated = mutableListOf<TransactionEntity>()
             for (i in 1..limit) {
                 currentDate = calculateNextDate(currentDate, freq, interval)
+                val itemInvoiceYm = when {
+                    !isInf && card != null && baseInvoiceYm != null -> card.installmentInvoiceMonthYear(
+                        baseInvoiceYm = baseInvoiceYm,
+                        offset = i,
+                        frequency = freq,
+                        interval = interval,
+                        currentDate = currentDate
+                    )
+                    isInf && card != null -> card.defaultInvoiceMonthYear(currentDate)
+                    else -> null
+                }
+                val itemDate = if (!isInf && card != null && baseInvoiceYm != null && itemInvoiceYm != null) {
+                    card.installmentItemDate(
+                        baseInvoiceYm = baseInvoiceYm,
+                        itemInvoiceYm = itemInvoiceYm,
+                        frequency = freq,
+                        fallbackDate = currentDate
+                    )
+                } else {
+                    currentDate
+                }
                 val newTx = TransactionEntity(
                     title = request.title,
                     amount = request.amount,
-                    date = currentDate,
+                    date = itemDate,
                     responsibleId = transaction.responsibleId,
                     accountId = transaction.accountId,
                     type = transaction.type,
@@ -279,6 +335,10 @@ class UpdateTransactionUseCase(
                     recurrenceInterval = interval,
                     isInfinite = isInf,
                     creditCardId = transaction.creditCardId,
+                    invoiceMonth = itemInvoiceYm?.monthValue,
+                    invoiceYear = itemInvoiceYm?.year,
+                    installmentNumber = if (!isInf && card != null) baseInstallmentNumber + i else null,
+                    totalInstallments = totalInstallments,
                     generatesDebt = request.generatesDebt ?: transaction.generatesDebt,
                     generalCategoryId = if (categoryUnchanged) transaction.generalCategoryId else resolvedCategories.effectiveGeneralCategoryId
                 )

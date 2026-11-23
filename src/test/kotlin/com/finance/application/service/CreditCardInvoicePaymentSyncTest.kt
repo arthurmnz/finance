@@ -3,8 +3,10 @@ package com.finance.application.service
 import com.finance.application.dto.credit_card.CreateCreditCardRequest
 import com.finance.application.dto.credit_card.PayInvoiceRequest
 import com.finance.application.dto.credit_card.UpdateCreditCardRequest
+import com.finance.application.dto.credit_card.UpdateInvoiceRevolvingRequest
 import com.finance.application.dto.transaction.UpdateTransactionRequest
 import com.finance.domain.exception.AccessDeniedException
+import com.finance.domain.exception.InvalidTransactionException
 import org.junit.jupiter.api.assertThrows
 import com.finance.application.use_case.transaction.DeleteTransactionUseCase
 import com.finance.application.use_case.transaction.ToggleTransactionStatusUseCase
@@ -464,6 +466,40 @@ class CreditCardInvoicePaymentSyncTest {
                 10,
                 2026,
                 PayInvoiceRequest(amount = 1000, accountId = jointAcc.id),
+                userId
+            )
+        }
+    }
+
+    @Test
+    fun `should reject invalid invoice month and year in getInvoice, payInvoice and updateInvoiceRevolving`() {
+        assertThrows<InvalidTransactionException> {
+            creditCardService.getInvoice(cardId, 13, 2026, userId)
+        }
+        assertThrows<InvalidTransactionException> {
+            creditCardService.getInvoice(cardId, 1, 9999, userId)
+        }
+        assertThrows<InvalidTransactionException> {
+            creditCardService.payInvoice(cardId, 0, 2026, PayInvoiceRequest(amount = 1000), userId)
+        }
+        assertThrows<InvalidTransactionException> {
+            creditCardService.payInvoice(cardId, 1, 1899, PayInvoiceRequest(amount = 1000), userId)
+        }
+        assertThrows<InvalidTransactionException> {
+            creditCardService.updateInvoiceRevolving(
+                cardId,
+                13,
+                2026,
+                UpdateInvoiceRevolvingRequest(revolvingInterestAmount = 100),
+                userId
+            )
+        }
+        assertThrows<InvalidTransactionException> {
+            creditCardService.updateInvoiceRevolving(
+                cardId,
+                10,
+                2101,
+                UpdateInvoiceRevolvingRequest(revolvingInterestAmount = 100),
                 userId
             )
         }

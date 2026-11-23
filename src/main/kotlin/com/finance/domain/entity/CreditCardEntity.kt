@@ -1,8 +1,10 @@
 package com.finance.domain.entity
 
+import com.finance.domain.enum.RecurrenceFrequency
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.YearMonth
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 class CreditCardEntity(
@@ -95,6 +97,61 @@ class CreditCardEntity(
         }
         return if (dueDay < closingDay) baseMonth.plusMonths(1) else baseMonth
     }
+
+    /**
+     * Calcula a data de fechamento da fatura [invoiceYm],
+     * limitando [closingDay] ao último dia do mês quando necessário.
+     */
+    fun invoiceClosingDate(invoiceYm: YearMonth): LocalDate =
+        closingDayOn(closingYearMonth(invoiceYm))
+
+    /**
+     * Calcula a data de abertura da fatura [invoiceYm] (data de fechamento da fatura anterior).
+     */
+    fun invoiceOpeningDate(invoiceYm: YearMonth): LocalDate =
+        closingDayOn(closingYearMonth(invoiceYm).minusMonths(1))
+
+    /**
+     * Calcula a competência de fatura de uma parcela/ocorrência considerando o deslocamento [offset].
+     */
+    fun installmentInvoiceMonthYear(
+        baseInvoiceYm: YearMonth,
+        offset: Int,
+        frequency: RecurrenceFrequency?,
+        interval: Int,
+        currentDate: LocalDate
+    ): YearMonth {
+        if (offset == 0) return baseInvoiceYm
+        val monthsOffset = when (frequency) {
+            RecurrenceFrequency.YEARLY -> (offset * interval * 12).toLong()
+            RecurrenceFrequency.MONTHLY, null -> (offset * interval).toLong()
+            RecurrenceFrequency.DAILY, RecurrenceFrequency.WEEKLY ->
+                ChronoUnit.MONTHS.between(baseInvoiceYm, defaultInvoiceMonthYear(currentDate))
+        }
+        return baseInvoiceYm.plusMonths(monthsOffset)
+    }
+
+    /**
+     * Define a data de lançamento de uma parcela futura (offset > 0) no cartão:
+     * parcelas em faturas subsequentes usam a data de abertura da respectiva fatura.
+     */
+    fun installmentItemDate(
+        baseInvoiceYm: YearMonth,
+        itemInvoiceYm: YearMonth,
+        frequency: RecurrenceFrequency?,
+        fallbackDate: LocalDate
+    ): LocalDate = when (frequency) {
+        RecurrenceFrequency.DAILY, RecurrenceFrequency.WEEKLY ->
+            if (itemInvoiceYm > baseInvoiceYm) invoiceOpeningDate(itemInvoiceYm) else fallbackDate
+        RecurrenceFrequency.MONTHLY, RecurrenceFrequency.YEARLY, null ->
+            invoiceOpeningDate(itemInvoiceYm)
+    }
+
+    private fun closingYearMonth(invoiceYm: YearMonth): YearMonth =
+        if (dueDay < closingDay) invoiceYm.minusMonths(1) else invoiceYm
+
+    private fun closingDayOn(ym: YearMonth): LocalDate =
+        LocalDate.of(ym.year, ym.monthValue, closingDay.coerceAtMost(ym.lengthOfMonth()))
 
     companion object {
         private fun validate(name: String, limitAmount: Int, closingDay: Int, dueDay: Int) {

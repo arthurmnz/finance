@@ -12,6 +12,7 @@ import com.finance.domain.entity.UserEntity
 import com.finance.domain.enum.AccountType
 import com.finance.domain.enum.CategoryLevel
 import com.finance.domain.enum.CategoryType
+import com.finance.domain.enum.RecurrenceFrequency
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccessDeniedException
@@ -1366,6 +1367,463 @@ class CreateTransactionUseCaseTest {
                     type = TransactionType.TRANSFER,
                     destinationAccountId = accB.id,
                     status = TransactionStatus.COMPLETED
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `should set first installment on purchase date and subsequent installments on invoice opening date when purchased after closing`() {
+        val user = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val card = CreditCardEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            accountId = UUID.randomUUID(),
+            name = "Nubank",
+            limitAmount = 500000,
+            closingDay = 10,
+            dueDay = 17
+        )
+        `when`(creditCardService.requireCardAccess(card.id, user.id)).thenReturn(card)
+        `when`(userRepository.findAll()).thenReturn(listOf(user))
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        val result = useCase.execute(
+            user.id,
+            CreateTransactionRequest(
+                title = "Notebook",
+                amount = 100000,
+                date = LocalDate.of(2025, 12, 25),
+                accountId = card.accountId,
+                type = TransactionType.EXPENSE,
+                creditCardId = card.id,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInterval = 1,
+                recurrenceInstallments = 3,
+                isInfinite = false
+            )
+        )
+
+        assertEquals(3, result.size)
+        assertEquals(listOf(LocalDate.of(2025, 12, 25), LocalDate.of(2026, 1, 10), LocalDate.of(2026, 2, 10)), result.map { it.date })
+        assertEquals(listOf(1 to 2026, 2 to 2026, 3 to 2026), result.map { it.invoiceMonth to it.invoiceYear })
+        assertEquals(listOf(1, 2, 3), result.map { it.installmentNumber })
+        assertEquals(listOf(3, 3, 3), result.map { it.totalInstallments })
+    }
+
+    @Test
+    fun `should handle credit card installments after closing when dueDay is less than closingDay`() {
+        val user = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val card = CreditCardEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            accountId = UUID.randomUUID(),
+            name = "Inter",
+            limitAmount = 500000,
+            closingDay = 10,
+            dueDay = 5
+        )
+        `when`(creditCardService.requireCardAccess(card.id, user.id)).thenReturn(card)
+        `when`(userRepository.findAll()).thenReturn(listOf(user))
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        val result = useCase.execute(
+            user.id,
+            CreateTransactionRequest(
+                title = "TV",
+                amount = 50000,
+                date = LocalDate.of(2025, 12, 25),
+                accountId = card.accountId,
+                type = TransactionType.EXPENSE,
+                creditCardId = card.id,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInterval = 1,
+                recurrenceInstallments = 3,
+                isInfinite = false
+            )
+        )
+
+        assertEquals(3, result.size)
+        assertEquals(listOf(LocalDate.of(2025, 12, 25), LocalDate.of(2026, 1, 10), LocalDate.of(2026, 2, 10)), result.map { it.date })
+        assertEquals(listOf(2 to 2026, 3 to 2026, 4 to 2026), result.map { it.invoiceMonth to it.invoiceYear })
+    }
+
+    @Test
+    fun `should handle credit card installments before closing and on closing day`() {
+        val user = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val card = CreditCardEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            accountId = UUID.randomUUID(),
+            name = "Nubank",
+            limitAmount = 500000,
+            closingDay = 10,
+            dueDay = 17
+        )
+        `when`(creditCardService.requireCardAccess(card.id, user.id)).thenReturn(card)
+        `when`(userRepository.findAll()).thenReturn(listOf(user))
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        val beforeClosing = useCase.execute(
+            user.id,
+            CreateTransactionRequest(
+                title = "Antes fechamento",
+                amount = 30000,
+                date = LocalDate.of(2025, 12, 5),
+                accountId = card.accountId,
+                type = TransactionType.EXPENSE,
+                creditCardId = card.id,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInterval = 1,
+                recurrenceInstallments = 3,
+                isInfinite = false
+            )
+        )
+        assertEquals(
+            listOf(LocalDate.of(2025, 12, 5), LocalDate.of(2025, 12, 10), LocalDate.of(2026, 1, 10)),
+            beforeClosing.map { it.date }
+        )
+        assertEquals(listOf(12 to 2025, 1 to 2026, 2 to 2026), beforeClosing.map { it.invoiceMonth to it.invoiceYear })
+
+        val onClosing = useCase.execute(
+            user.id,
+            CreateTransactionRequest(
+                title = "Dia fechamento",
+                amount = 30000,
+                date = LocalDate.of(2025, 12, 10),
+                accountId = card.accountId,
+                type = TransactionType.EXPENSE,
+                creditCardId = card.id,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInterval = 1,
+                recurrenceInstallments = 3,
+                isInfinite = false
+            )
+        )
+        assertEquals(
+            listOf(LocalDate.of(2025, 12, 10), LocalDate.of(2026, 1, 10), LocalDate.of(2026, 2, 10)),
+            onClosing.map { it.date }
+        )
+        assertEquals(listOf(1 to 2026, 2 to 2026, 3 to 2026), onClosing.map { it.invoiceMonth to it.invoiceYear })
+    }
+
+    @Test
+    fun `should clamp closingDay 31 on short and leap February and return to day 31 in March`() {
+        val user = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val card = CreditCardEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            accountId = UUID.randomUUID(),
+            name = "Cartão 31",
+            limitAmount = 500000,
+            closingDay = 31,
+            dueDay = 31
+        )
+        `when`(creditCardService.requireCardAccess(card.id, user.id)).thenReturn(card)
+        `when`(userRepository.findAll()).thenReturn(listOf(user))
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        val nonLeap = useCase.execute(
+            user.id,
+            CreateTransactionRequest(
+                title = "Compra Jan 2026",
+                amount = 10000,
+                date = LocalDate.of(2026, 1, 31),
+                accountId = card.accountId,
+                type = TransactionType.EXPENSE,
+                creditCardId = card.id,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInterval = 1,
+                recurrenceInstallments = 3,
+                isInfinite = false
+            )
+        )
+        assertEquals(
+            listOf(LocalDate.of(2026, 1, 31), LocalDate.of(2026, 2, 28), LocalDate.of(2026, 3, 31)),
+            nonLeap.map { it.date }
+        )
+        assertEquals(listOf(2 to 2026, 3 to 2026, 4 to 2026), nonLeap.map { it.invoiceMonth to it.invoiceYear })
+
+        val leap = useCase.execute(
+            user.id,
+            CreateTransactionRequest(
+                title = "Compra Jan 2028",
+                amount = 10000,
+                date = LocalDate.of(2028, 1, 31),
+                accountId = card.accountId,
+                type = TransactionType.EXPENSE,
+                creditCardId = card.id,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInterval = 1,
+                recurrenceInstallments = 3,
+                isInfinite = false
+            )
+        )
+        assertEquals(
+            listOf(LocalDate.of(2028, 1, 31), LocalDate.of(2028, 2, 29), LocalDate.of(2028, 3, 31)),
+            leap.map { it.date }
+        )
+        assertEquals(listOf(2 to 2028, 3 to 2028, 4 to 2028), leap.map { it.invoiceMonth to it.invoiceYear })
+    }
+
+    @Test
+    fun `should compute installment opening dates from manually customized initial invoice`() {
+        val user = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val card = CreditCardEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            accountId = UUID.randomUUID(),
+            name = "Nubank",
+            limitAmount = 500000,
+            closingDay = 10,
+            dueDay = 17
+        )
+        `when`(creditCardService.requireCardAccess(card.id, user.id)).thenReturn(card)
+        `when`(userRepository.findAll()).thenReturn(listOf(user))
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        val result = useCase.execute(
+            user.id,
+            CreateTransactionRequest(
+                title = "Fatura customizada",
+                amount = 20000,
+                date = LocalDate.of(2025, 12, 25),
+                accountId = card.accountId,
+                type = TransactionType.EXPENSE,
+                creditCardId = card.id,
+                invoiceMonth = 3,
+                invoiceYear = 2026,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInterval = 1,
+                recurrenceInstallments = 3,
+                isInfinite = false
+            )
+        )
+
+        assertEquals(
+            listOf(LocalDate.of(2025, 12, 25), LocalDate.of(2026, 3, 10), LocalDate.of(2026, 4, 10)),
+            result.map { it.date }
+        )
+        assertEquals(listOf(3 to 2026, 4 to 2026, 5 to 2026), result.map { it.invoiceMonth to it.invoiceYear })
+    }
+
+    @Test
+    fun `should handle weekly credit card fixed installments crossing invoice boundary`() {
+        val user = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val card = CreditCardEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            accountId = UUID.randomUUID(),
+            name = "Nubank",
+            limitAmount = 500000,
+            closingDay = 10,
+            dueDay = 17
+        )
+        `when`(creditCardService.requireCardAccess(card.id, user.id)).thenReturn(card)
+        `when`(userRepository.findAll()).thenReturn(listOf(user))
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        val result = useCase.execute(
+            user.id,
+            CreateTransactionRequest(
+                title = "Semanal",
+                amount = 10000,
+                date = LocalDate.of(2025, 12, 1),
+                accountId = card.accountId,
+                type = TransactionType.EXPENSE,
+                creditCardId = card.id,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.WEEKLY,
+                recurrenceInterval = 1,
+                recurrenceInstallments = 3,
+                isInfinite = false
+            )
+        )
+
+        assertEquals(
+            listOf(LocalDate.of(2025, 12, 1), LocalDate.of(2025, 12, 8), LocalDate.of(2025, 12, 10)),
+            result.map { it.date }
+        )
+        assertEquals(listOf(12 to 2025, 12 to 2025, 1 to 2026), result.map { it.invoiceMonth to it.invoiceYear })
+    }
+
+    @Test
+    fun `should keep original day for infinite credit card subscriptions`() {
+        val user = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val card = CreditCardEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            accountId = UUID.randomUUID(),
+            name = "Nubank",
+            limitAmount = 500000,
+            closingDay = 10,
+            dueDay = 17
+        )
+        `when`(creditCardService.requireCardAccess(card.id, user.id)).thenReturn(card)
+        `when`(userRepository.findAll()).thenReturn(listOf(user))
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        val result = useCase.execute(
+            user.id,
+            CreateTransactionRequest(
+                title = "Streaming",
+                amount = 5590,
+                date = LocalDate.of(2025, 12, 25),
+                accountId = card.accountId,
+                type = TransactionType.EXPENSE,
+                creditCardId = card.id,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInterval = 1,
+                isInfinite = true
+            )
+        )
+
+        assertEquals(12, result.size)
+        assertEquals(
+            listOf(LocalDate.of(2025, 12, 25), LocalDate.of(2026, 1, 25), LocalDate.of(2026, 2, 25)),
+            result.take(3).map { it.date }
+        )
+        assertEquals(listOf(1 to 2026, 2 to 2026, 3 to 2026), result.take(3).map { it.invoiceMonth to it.invoiceYear })
+        assertTrue(result.all { it.isInfinite && it.installmentNumber == null && it.totalInstallments == null })
+    }
+
+    @Test
+    fun `should keep original recurring dates for bank account installments`() {
+        val user = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val acc = AccountEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            name = "Conta Corrente",
+            startBalance = 100000,
+            balance = 100000,
+            type = AccountType.CHECKING,
+            tax = null,
+            groupId = null
+        )
+        `when`(accountRepository.findById(acc.id)).thenReturn(acc)
+        `when`(userRepository.findAll()).thenReturn(listOf(user))
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer { it.getArgument<List<TransactionEntity>>(0) }
+
+        val result = useCase.execute(
+            user.id,
+            CreateTransactionRequest(
+                title = "Carnê",
+                amount = 20000,
+                date = LocalDate.of(2025, 12, 25),
+                accountId = acc.id,
+                type = TransactionType.EXPENSE,
+                status = TransactionStatus.COMPLETED,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInterval = 1,
+                recurrenceInstallments = 3,
+                isInfinite = false
+            )
+        )
+
+        assertEquals(3, result.size)
+        assertEquals(
+            listOf(LocalDate.of(2025, 12, 25), LocalDate.of(2026, 1, 25), LocalDate.of(2026, 2, 25)),
+            result.map { it.date }
+        )
+        assertTrue(result.all { it.invoiceMonth == null && it.invoiceYear == null })
+        assertEquals(listOf(TransactionStatus.COMPLETED, TransactionStatus.PENDING, TransactionStatus.PENDING), result.map { it.status })
+    }
+
+    @Test
+    fun `should reject out-of-range invoiceMonth, invoiceYear, recurrenceInstallments and recurrenceInterval`() {
+        val userId = UUID.randomUUID()
+        val accountId = UUID.randomUUID()
+
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userId,
+                CreateTransactionRequest(
+                    title = "Mês inválido",
+                    amount = 5000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = accountId,
+                    type = TransactionType.EXPENSE,
+                    invoiceMonth = 13,
+                    invoiceYear = 2026
+                )
+            )
+        }
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userId,
+                CreateTransactionRequest(
+                    title = "Ano inválido",
+                    amount = 5000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = accountId,
+                    type = TransactionType.EXPENSE,
+                    invoiceMonth = 1,
+                    invoiceYear = 9999
+                )
+            )
+        }
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userId,
+                CreateTransactionRequest(
+                    title = "Parcelas negativas",
+                    amount = 5000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = accountId,
+                    type = TransactionType.EXPENSE,
+                    isRecurring = true,
+                    recurrenceInstallments = -1
+                )
+            )
+        }
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userId,
+                CreateTransactionRequest(
+                    title = "Parcelas excessivas",
+                    amount = 5000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = accountId,
+                    type = TransactionType.EXPENSE,
+                    isRecurring = true,
+                    recurrenceInstallments = 366
+                )
+            )
+        }
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userId,
+                CreateTransactionRequest(
+                    title = "Intervalo zero",
+                    amount = 5000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = accountId,
+                    type = TransactionType.EXPENSE,
+                    isRecurring = true,
+                    recurrenceInterval = 0
+                )
+            )
+        }
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userId,
+                CreateTransactionRequest(
+                    title = "Intervalo excessivo",
+                    amount = 5000,
+                    date = LocalDate.of(2026, 11, 10),
+                    accountId = accountId,
+                    type = TransactionType.EXPENSE,
+                    isRecurring = true,
+                    recurrenceInterval = 121
                 )
             )
         }

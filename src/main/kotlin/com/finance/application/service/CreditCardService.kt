@@ -203,7 +203,7 @@ class CreditCardService(
 
     @Transactional(readOnly = true)
     fun getInvoice(cardId: UUID, month: Int, year: Int, userId: UUID): CreditCardInvoiceResponse {
-        require(month in 1..12) { "Mês inválido." }
+        TransactionInputValidator.validateInvoicePeriod(month, year)
         val card = requireCardAccess(cardId, userId)
         val users = userCache()
         return buildInvoiceResponse(card, month, year, users)
@@ -211,7 +211,7 @@ class CreditCardService(
 
     @Transactional
     fun payInvoice(cardId: UUID, month: Int, year: Int, request: PayInvoiceRequest, userId: UUID): CreditCardInvoiceResponse {
-        require(month in 1..12) { "Mês inválido." }
+        TransactionInputValidator.validateInvoicePeriod(month, year)
         val card = requireCardAccess(cardId, userId)
         val targetAccountId = request.accountId ?: card.accountId
         val account = accountRepository.findById(targetAccountId) ?: throw AccountNotFoundException("Conta para pagamento não encontrada.")
@@ -267,7 +267,7 @@ class CreditCardService(
 
     @Transactional
     fun updateInvoiceRevolving(cardId: UUID, month: Int, year: Int, request: UpdateInvoiceRevolvingRequest, userId: UUID): CreditCardInvoiceResponse {
-        require(month in 1..12) { "Mês inválido." }
+        TransactionInputValidator.validateInvoicePeriod(month, year)
         val card = requireCardAccess(cardId, userId)
         val invoice = invoiceRepository.findByCardAndPeriod(cardId, month, year)
             ?: CreditCardInvoiceEntity(creditCardId = cardId, month = month, year = year)
@@ -333,8 +333,7 @@ class CreditCardService(
 
         val ym = YearMonth.of(year, month)
         val dueDate = LocalDate.of(year, month, card.dueDay.coerceAtMost(ym.lengthOfMonth()))
-        val closingYm = if (card.dueDay < card.closingDay) ym.minusMonths(1) else ym
-        val closingDate = LocalDate.of(closingYm.year, closingYm.monthValue, card.closingDay.coerceAtMost(closingYm.lengthOfMonth()))
+        val closingDate = card.invoiceClosingDate(ym)
 
         val today = LocalDate.now()
         val status = when {

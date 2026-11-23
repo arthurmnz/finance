@@ -32,6 +32,7 @@ class DeleteTransactionUseCase(
             transaction = transaction,
             userId = userId,
             accountRepository = accountRepository,
+            creditCardRepository = creditCardRepository,
             unauthorizedMessage = "You can only delete transactions you created"
         )
 

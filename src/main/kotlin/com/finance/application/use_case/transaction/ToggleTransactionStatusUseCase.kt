@@ -38,6 +38,7 @@ class ToggleTransactionStatusUseCase(
             transaction = transaction,
             userId = userId,
             accountRepository = accountRepository,
+            creditCardRepository = creditCardRepository,
             unauthorizedMessage = "You can only change status of transactions you created"
         )
 

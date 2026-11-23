@@ -1,10 +1,12 @@
 package com.finance.presentation.exception
 
+import com.finance.domain.exception.CreditCardNotFoundException
 import com.finance.domain.exception.InvalidCategoryException
 import org.junit.jupiter.api.Test
 import org.springframework.http.HttpMethod
 import org.springframework.http.HttpStatus
 import org.springframework.web.servlet.resource.NoResourceFoundException
+import java.time.DateTimeException
 import kotlin.test.assertEquals
 
 class GlobalExceptionHandlerTest {
@@ -29,5 +31,24 @@ class GlobalExceptionHandlerTest {
         assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, response.statusCode)
         assertEquals(422, response.body?.status)
         assertEquals("Categoria inválida para esta operação.", response.body?.message)
+    }
+
+    @Test
+    fun `should return 400 for DateTimeException`() {
+        val ex = DateTimeException("Invalid value for MonthOfYear: 13")
+        val response = handler.handleBadRequest(ex)
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.statusCode)
+        assertEquals(400, response.body?.status)
+    }
+
+    @Test
+    fun `should return 404 for CreditCardNotFoundException`() {
+        val ex = CreditCardNotFoundException()
+        val response = handler.handleAccountNotFound(ex)
+
+        assertEquals(HttpStatus.NOT_FOUND, response.statusCode)
+        assertEquals(404, response.body?.status)
+        assertEquals("Cartão de crédito não encontrado.", response.body?.message)
     }
 }

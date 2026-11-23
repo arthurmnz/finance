@@ -5,8 +5,10 @@ import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccessDeniedException
 import com.finance.domain.exception.AccountNotFoundException
+import com.finance.domain.exception.CreditCardNotFoundException
 import com.finance.domain.exception.UnauthorizedException
 import com.finance.domain.repository.AccountRepository
+import com.finance.domain.repository.CreditCardRepository
 import com.finance.domain.repository.GroupMemberRepository
 import com.finance.domain.repository.JointAccountMemberRepository
 import org.springframework.stereotype.Service
@@ -75,7 +77,7 @@ class AccountAccessService(
 
     /**
      * Valida permissão atual para editar, excluir ou alternar status de uma transação.
-     * - Cartão: exige autoria da transação.
+     * - Cartão: exige autoria da transação, existência do cartão e acesso atual (titular ou membro do grupo).
      * - TRANSFER: exige autoria + titularidade da conta de origem (ou acesso se conjunta) + acesso atual na conta de destino.
      * - EXPENSE/INCOME em conta conjunta: permite qualquer membro com acesso atual à conta.
      * - EXPENSE/INCOME em conta individual: exige autoria + acesso atual à conta.
@@ -84,11 +86,19 @@ class AccountAccessService(
         transaction: TransactionEntity,
         userId: UUID,
         accountRepository: AccountRepository,
+        creditCardRepository: CreditCardRepository,
         unauthorizedMessage: String
     ) {
-        if (transaction.creditCardId != null) {
+        val cardId = transaction.creditCardId
+        if (cardId != null) {
             if (transaction.responsibleId != userId) {
                 throw UnauthorizedException(unauthorizedMessage)
+            }
+            val card = creditCardRepository.findById(cardId) ?: throw CreditCardNotFoundException()
+            val hasCardAccess = card.ownerId == userId ||
+                (card.groupId != null && groupMemberRepository.existsByGroupIdAndUserId(card.groupId!!, userId))
+            if (!hasCardAccess) {
+                throw AccessDeniedException("Você não tem acesso a este cartão de crédito.")
             }
             return
         }

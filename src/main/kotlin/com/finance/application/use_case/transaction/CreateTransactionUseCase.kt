@@ -7,6 +7,7 @@ import com.finance.application.mapper.TransactionDtoMapper
 import com.finance.application.service.AccountAccessService
 import com.finance.application.service.CreditCardService
 import com.finance.application.service.TransactionCategoryValidator
+import com.finance.application.service.TransactionInputValidator
 import com.finance.domain.entity.AccountEntity
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.enum.RecurrenceFrequency
@@ -41,11 +42,14 @@ class CreateTransactionUseCase(
             throw InvalidTransactionException("O valor da transação deve ser maior que zero.")
         }
 
-        if (request.recurrenceInstallments < 0)
-            throw InvalidTransactionException("A quantidade de parcelas não pode ser negativa.")
-
-        if (request.recurrenceInterval <= 0 && request.isRecurring)
-            throw InvalidTransactionException("O Intervalo não pode ser nulo ou negativo.")
+        TransactionInputValidator.validateRecurrenceLimits(
+            recurrenceInstallments = request.recurrenceInstallments,
+            recurrenceInterval = request.recurrenceInterval
+        )
+        TransactionInputValidator.validateInvoicePeriod(
+            invoiceMonth = request.invoiceMonth,
+            invoiceYear = request.invoiceYear
+        )
 
         val resolvedCategories = TransactionCategoryValidator.validateSelection(
             categoryRepository = categoryRepository,
@@ -200,25 +204,32 @@ class CreateTransactionUseCase(
             for (i in 0 until installments) {
                 val itemAmount = if (divideTotal && i == 0) baseInstallmentAmount + remainder else baseInstallmentAmount
                 val itemInvoiceYm = if (creditCard != null && baseInvoiceYm != null) {
-                    if (i == 0) baseInvoiceYm
-                    else {
-                        val monthsOffset = when (request.recurrenceFrequency) {
-                            RecurrenceFrequency.YEARLY -> (i * request.recurrenceInterval * 12).toLong()
-                            RecurrenceFrequency.MONTHLY, null -> (i * request.recurrenceInterval).toLong()
-                            else -> creditCard.defaultInvoiceMonthYear(currentDate).let {
-                                return@let java.time.temporal.ChronoUnit.MONTHS.between(baseInvoiceYm, it)
-                            }
-                        }
-                        baseInvoiceYm.plusMonths(monthsOffset)
-                    }
+                    creditCard.installmentInvoiceMonthYear(
+                        baseInvoiceYm = baseInvoiceYm,
+                        offset = i,
+                        frequency = request.recurrenceFrequency,
+                        interval = request.recurrenceInterval,
+                        currentDate = currentDate
+                    )
                 } else null
+
+                val itemDate = if (creditCard != null && isFixedInstallmentPlan && i > 0 && baseInvoiceYm != null && itemInvoiceYm != null) {
+                    creditCard.installmentItemDate(
+                        baseInvoiceYm = baseInvoiceYm,
+                        itemInvoiceYm = itemInvoiceYm,
+                        frequency = request.recurrenceFrequency,
+                        fallbackDate = currentDate
+                    )
+                } else {
+                    currentDate
+                }
 
                 val itemStatus = if (creditCard != null) TransactionStatus.COMPLETED else if (i == 0) request.status else TransactionStatus.PENDING
 
                 val transaction = TransactionEntity(
                     title = request.title,
                     amount = itemAmount,
-                    date = currentDate,
+                    date = itemDate,
                     responsibleId = itemResponsibleId,
                     accountId = split.accountId,
                     type = request.type,

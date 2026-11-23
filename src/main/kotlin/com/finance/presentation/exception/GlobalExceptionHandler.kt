@@ -32,6 +32,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.servlet.NoHandlerFoundException
 import org.springframework.web.servlet.resource.NoResourceFoundException
+import java.time.DateTimeException
 
 @RestControllerAdvice
 class GlobalExceptionHandler {
@@ -168,7 +169,7 @@ class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(AccountNotFoundException::class, CreditCardNotFoundException::class)
-    fun handleAccountNotFound(ex: AccountNotFoundException): ResponseEntity<ErrorResponse> {
+    fun handleAccountNotFound(ex: Exception): ResponseEntity<ErrorResponse> {
         val error = ErrorResponse(
             status = HttpStatus.NOT_FOUND.value(),
             error = HttpStatus.NOT_FOUND.reasonPhrase,
@@ -257,7 +258,11 @@ class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(error)
     }
 
-    @ExceptionHandler(IllegalArgumentException::class, HttpMessageNotReadableException::class)
+    @ExceptionHandler(
+        IllegalArgumentException::class,
+        HttpMessageNotReadableException::class,
+        DateTimeException::class
+    )
     fun handleBadRequest(ex: Exception): ResponseEntity<ErrorResponse> {
         val error = ErrorResponse(
             status = HttpStatus.BAD_REQUEST.value(),

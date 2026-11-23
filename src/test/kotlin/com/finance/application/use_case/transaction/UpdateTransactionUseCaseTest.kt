@@ -4,14 +4,17 @@ import com.finance.application.dto.transaction.UpdateTransactionRequest
 import com.finance.application.service.AccountAccessService
 import com.finance.domain.entity.AccountEntity
 import com.finance.domain.entity.CategoryEntity
+import com.finance.domain.entity.CreditCardEntity
 import com.finance.domain.entity.TransactionEntity
 import com.finance.domain.entity.UserEntity
 import com.finance.domain.enum.AccountType
 import com.finance.domain.enum.CategoryLevel
 import com.finance.domain.enum.CategoryType
+import com.finance.domain.enum.RecurrenceFrequency
 import com.finance.domain.enum.TransactionStatus
 import com.finance.domain.enum.TransactionType
 import com.finance.domain.exception.AccessDeniedException
+import com.finance.domain.exception.CreditCardNotFoundException
 import com.finance.domain.exception.InvalidTransactionException
 import com.finance.domain.repository.AccountRepository
 import com.finance.domain.repository.CategoryRepository
@@ -943,6 +946,380 @@ class UpdateTransactionUseCaseTest {
                     amount = 4500,
                     date = LocalDate.of(2026, 11, 13),
                     status = TransactionStatus.COMPLETED
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `should regenerate future credit card installments using invoice opening date and coherent installment metadata`() {
+        val user = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val card = CreditCardEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            accountId = UUID.randomUUID(),
+            name = "Nubank",
+            limitAmount = 500000,
+            closingDay = 10,
+            dueDay = 17
+        )
+        val recurrenceGroupId = UUID.randomUUID()
+        val tx = TransactionEntity(
+            title = "Compra Parcelada",
+            amount = 30000,
+            date = LocalDate.of(2025, 12, 25),
+            responsibleId = user.id,
+            accountId = card.accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = recurrenceGroupId,
+            recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+            recurrenceInterval = 1,
+            isInfinite = false,
+            creditCardId = card.id,
+            invoiceMonth = 1,
+            invoiceYear = 2026,
+            installmentNumber = 1,
+            totalInstallments = 3
+        )
+
+        val savedBatches = mutableListOf<List<TransactionEntity>>()
+        `when`(transactionRepository.findById(tx.id)).thenReturn(tx)
+        `when`(transactionRepository.findFutureTransactionsByGroupId(recurrenceGroupId, tx.date)).thenReturn(emptyList())
+        `when`(creditCardRepository.findById(card.id)).thenReturn(card)
+        `when`(userRepository.findById(user.id)).thenReturn(user)
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer {
+            val list = it.getArgument<List<TransactionEntity>>(0)
+            savedBatches.add(list)
+            list
+        }
+
+        useCase.execute(
+            user.id,
+            tx.id,
+            UpdateTransactionRequest(
+                title = "Compra Parcelada Atualizada",
+                amount = 35000,
+                date = LocalDate.of(2025, 12, 25),
+                status = TransactionStatus.COMPLETED,
+                updateAllFuture = true,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInterval = 1,
+                recurrenceInstallments = 2,
+                isInfinite = false
+            )
+        )
+
+        assertEquals(2, savedBatches.size)
+        val regenerated = savedBatches[1]
+        assertEquals(2, regenerated.size)
+        assertEquals(listOf(LocalDate.of(2026, 1, 10), LocalDate.of(2026, 2, 10)), regenerated.map { it.date })
+        assertEquals(listOf(2 to 2026, 3 to 2026), regenerated.map { it.invoiceMonth to it.invoiceYear })
+        assertEquals(listOf(2, 3), regenerated.map { it.installmentNumber })
+        assertEquals(listOf(3, 3), regenerated.map { it.totalInstallments })
+        assertTrue(regenerated.all { it.status == TransactionStatus.COMPLETED && !it.isInfinite })
+
+        // Caso com fatura customizada no request e cartão com dueDay < closingDay
+        savedBatches.clear()
+        val cardNextDue = CreditCardEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            accountId = card.accountId,
+            name = "Inter",
+            limitAmount = 500000,
+            closingDay = 10,
+            dueDay = 5
+        )
+        val txWithoutInvoice = TransactionEntity(
+            title = "Sem fatura prévia",
+            amount = 20000,
+            date = LocalDate.of(2025, 12, 25),
+            responsibleId = user.id,
+            accountId = card.accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = recurrenceGroupId,
+            recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+            recurrenceInterval = 1,
+            isInfinite = false,
+            creditCardId = cardNextDue.id,
+            invoiceMonth = null,
+            invoiceYear = null,
+            installmentNumber = 1,
+            totalInstallments = 3
+        )
+        `when`(transactionRepository.findById(txWithoutInvoice.id)).thenReturn(txWithoutInvoice)
+        `when`(creditCardRepository.findById(cardNextDue.id)).thenReturn(cardNextDue)
+
+        useCase.execute(
+            user.id,
+            txWithoutInvoice.id,
+            UpdateTransactionRequest(
+                title = "Sem fatura prévia",
+                amount = 20000,
+                date = LocalDate.of(2025, 12, 25),
+                status = TransactionStatus.COMPLETED,
+                updateAllFuture = true,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInterval = 1,
+                recurrenceInstallments = 2,
+                isInfinite = false
+            )
+        )
+
+        val fallbackRegenerated = savedBatches[1]
+        assertEquals(listOf(LocalDate.of(2026, 1, 10), LocalDate.of(2026, 2, 10)), fallbackRegenerated.map { it.date })
+        assertEquals(listOf(3 to 2026, 4 to 2026), fallbackRegenerated.map { it.invoiceMonth to it.invoiceYear })
+
+        // Fatura inicial informada explicitamente no request
+        savedBatches.clear()
+        useCase.execute(
+            user.id,
+            txWithoutInvoice.id,
+            UpdateTransactionRequest(
+                title = "Fatura explícita",
+                amount = 20000,
+                date = LocalDate.of(2025, 12, 25),
+                status = TransactionStatus.COMPLETED,
+                updateAllFuture = true,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInterval = 1,
+                recurrenceInstallments = 2,
+                isInfinite = false,
+                invoiceMonth = 4,
+                invoiceYear = 2026
+            )
+        )
+
+        val customRegenerated = savedBatches[1]
+        assertEquals(listOf(LocalDate.of(2026, 3, 10), LocalDate.of(2026, 4, 10)), customRegenerated.map { it.date })
+        assertEquals(listOf(5 to 2026, 6 to 2026), customRegenerated.map { it.invoiceMonth to it.invoiceYear })
+    }
+
+    @Test
+    fun `should regenerate future credit card infinite subscriptions keeping purchase day and filling default invoice period`() {
+        val user = UserEntity(Name("Arthur"), Name("Menezes"), Email("arthur@finance.com"), PasswordHash("hash"))
+        val card = CreditCardEntity(
+            id = UUID.randomUUID(),
+            ownerId = user.id,
+            accountId = UUID.randomUUID(),
+            name = "Nubank",
+            limitAmount = 500000,
+            closingDay = 10,
+            dueDay = 17
+        )
+        val recurrenceGroupId = UUID.randomUUID()
+        val tx = TransactionEntity(
+            title = "Assinatura",
+            amount = 5990,
+            date = LocalDate.of(2025, 12, 25),
+            responsibleId = user.id,
+            accountId = card.accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            recurrenceGroupId = recurrenceGroupId,
+            recurrenceFrequency = RecurrenceFrequency.YEARLY,
+            recurrenceInterval = 1,
+            isInfinite = true,
+            creditCardId = card.id,
+            invoiceMonth = 1,
+            invoiceYear = 2026
+        )
+
+        val savedBatches = mutableListOf<List<TransactionEntity>>()
+        `when`(transactionRepository.findById(tx.id)).thenReturn(tx)
+        `when`(transactionRepository.findFutureTransactionsByGroupId(recurrenceGroupId, tx.date)).thenReturn(emptyList())
+        `when`(creditCardRepository.findById(card.id)).thenReturn(card)
+        `when`(userRepository.findById(user.id)).thenReturn(user)
+        `when`(transactionRepository.saveAll(anyNonNull())).thenAnswer {
+            val list = it.getArgument<List<TransactionEntity>>(0)
+            savedBatches.add(list)
+            list
+        }
+
+        useCase.execute(
+            user.id,
+            tx.id,
+            UpdateTransactionRequest(
+                title = "Assinatura Mensal",
+                amount = 5990,
+                date = LocalDate.of(2025, 12, 25),
+                status = TransactionStatus.COMPLETED,
+                updateAllFuture = true,
+                isRecurring = true,
+                recurrenceFrequency = RecurrenceFrequency.MONTHLY,
+                recurrenceInterval = 1,
+                isInfinite = true
+            )
+        )
+
+        assertEquals(2, savedBatches.size)
+        val regenerated = savedBatches[1]
+        assertEquals(12, regenerated.size)
+        assertEquals(
+            listOf(LocalDate.of(2026, 1, 25), LocalDate.of(2026, 2, 25), LocalDate.of(2026, 3, 25)),
+            regenerated.take(3).map { it.date }
+        )
+        assertEquals(
+            listOf(2 to 2026, 3 to 2026, 4 to 2026),
+            regenerated.take(3).map { it.invoiceMonth to it.invoiceYear }
+        )
+        assertTrue(regenerated.all { it.isInfinite && it.installmentNumber == null && it.totalInstallments == null })
+    }
+
+    @Test
+    fun `should block former group member from updating credit card transaction and fail when card is missing`() {
+        val owner = UserEntity(Name("Owner"), Name("User"), Email("owner@finance.com"), PasswordHash("hash"))
+        val exMember = UserEntity(Name("Ex"), Name("Member"), Email("ex@finance.com"), PasswordHash("hash"))
+        val groupId = UUID.randomUUID()
+        val card = CreditCardEntity(
+            id = UUID.randomUUID(),
+            ownerId = owner.id,
+            accountId = UUID.randomUUID(),
+            name = "Cartão Grupo",
+            limitAmount = 500000,
+            closingDay = 10,
+            dueDay = 17,
+            groupId = groupId
+        )
+        val tx = TransactionEntity(
+            title = "Compra Grupo",
+            amount = 10000,
+            date = LocalDate.of(2026, 11, 10),
+            responsibleId = exMember.id,
+            accountId = card.accountId,
+            type = TransactionType.EXPENSE,
+            destinationAccountId = null,
+            categoryId = null,
+            status = TransactionStatus.COMPLETED,
+            creditCardId = card.id,
+            invoiceMonth = 12,
+            invoiceYear = 2026
+        )
+
+        `when`(transactionRepository.findById(tx.id)).thenReturn(tx)
+        `when`(creditCardRepository.findById(card.id)).thenReturn(card)
+        `when`(groupMemberRepository.existsByGroupIdAndUserId(groupId, exMember.id)).thenReturn(false)
+
+        assertThrows<AccessDeniedException> {
+            useCase.execute(
+                exMember.id,
+                tx.id,
+                UpdateTransactionRequest(
+                    title = "Tentativa edição",
+                    amount = 10000,
+                    date = LocalDate.of(2026, 11, 10),
+                    status = TransactionStatus.COMPLETED
+                )
+            )
+        }
+
+        `when`(creditCardRepository.findById(card.id)).thenReturn(null)
+        assertThrows<CreditCardNotFoundException> {
+            useCase.execute(
+                exMember.id,
+                tx.id,
+                UpdateTransactionRequest(
+                    title = "Cartão ausente",
+                    amount = 10000,
+                    date = LocalDate.of(2026, 11, 10),
+                    status = TransactionStatus.COMPLETED
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `should reject invalid invoiceMonth, invoiceYear, recurrenceInstallments and recurrenceInterval on update`() {
+        val userId = UUID.randomUUID()
+        val txId = UUID.randomUUID()
+
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userId,
+                txId,
+                UpdateTransactionRequest(
+                    title = "Mês inválido",
+                    amount = 10000,
+                    date = LocalDate.of(2026, 11, 10),
+                    status = TransactionStatus.COMPLETED,
+                    invoiceMonth = 13,
+                    invoiceYear = 2026
+                )
+            )
+        }
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userId,
+                txId,
+                UpdateTransactionRequest(
+                    title = "Ano inválido",
+                    amount = 10000,
+                    date = LocalDate.of(2026, 11, 10),
+                    status = TransactionStatus.COMPLETED,
+                    invoiceMonth = 1,
+                    invoiceYear = 1899
+                )
+            )
+        }
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userId,
+                txId,
+                UpdateTransactionRequest(
+                    title = "Parcelas negativas",
+                    amount = 10000,
+                    date = LocalDate.of(2026, 11, 10),
+                    status = TransactionStatus.COMPLETED,
+                    recurrenceInstallments = -1
+                )
+            )
+        }
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userId,
+                txId,
+                UpdateTransactionRequest(
+                    title = "Parcelas excessivas",
+                    amount = 10000,
+                    date = LocalDate.of(2026, 11, 10),
+                    status = TransactionStatus.COMPLETED,
+                    recurrenceInstallments = 366
+                )
+            )
+        }
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userId,
+                txId,
+                UpdateTransactionRequest(
+                    title = "Intervalo zero",
+                    amount = 10000,
+                    date = LocalDate.of(2026, 11, 10),
+                    status = TransactionStatus.COMPLETED,
+                    recurrenceInterval = 0
+                )
+            )
+        }
+        assertThrows<InvalidTransactionException> {
+            useCase.execute(
+                userId,
+                txId,
+                UpdateTransactionRequest(
+                    title = "Intervalo excessivo",
+                    amount = 10000,
+                    date = LocalDate.of(2026, 11, 10),
+                    status = TransactionStatus.COMPLETED,
+                    recurrenceInterval = 121
                 )
             )
         }
